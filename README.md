@@ -13,6 +13,23 @@ npm run build
 npm link
 ```
 
+## 让 AI 帮你安装
+
+把下面这段提示词复制给 Codex、Cursor、OpenCode 或 WorkBuddy。
+
+```text
+请在我实际运行 AI 工具的环境中安装 VELA CLI 和工时登记技能。
+
+仓库是 https://github.com/solumon/fans-vela-cli ，需要 GitHub 读取权限。使用我现有的 GitHub 登录。如果无法访问，请告诉我需要开通仓库权限。
+
+1. 将仓库克隆到一个长期保留的目录。如果已有该仓库，先确认远端地址，再复用它。
+2. 在项目目录使用 Node.js 26，执行 npm ci、npm run build 和 npm link。检查当前环境能运行 vela --help。如果本机缺少 Google Chrome，请告诉我。
+3. 根据我使用的 AI 工具安装技能：
+   - Codex、Cursor、OpenCode：将仓库 .agents/skills/fans-vela-daily-register 目录复制到 ~/.agents/skills/，让它能跨项目使用。如果已有同名技能，请先比对内容再更新。
+   - WorkBuddy：运行 npm run pack:release 生成技能 ZIP，告诉我 ZIP 的完整路径，并提示我在 WorkBuddy 的「上传技能」中导入。
+4. 核对 vela 命令和技能文件是否就绪，汇报安装位置。提示我在自己的终端运行 vela login 并用企业微信扫码，再运行 vela auth status 核对登录结果。
+```
+
 ## 打包与分发
 
 使用 Node.js 26，安装项目依赖后运行以下命令。打包需要 POSIX shell 和 `zip`，默认输出到 `release/`。可用 `npm run pack:release -- /path/to/output` 指定目录。
