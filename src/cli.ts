@@ -3,15 +3,25 @@ import { parseArgs } from 'node:util'
 import { browserLogin } from './browser-login.js'
 import { hoursCommand } from './hours.js'
 import { clearSession, loadSession, saveSession, withSessionLock } from './session.js'
-import { formatAccount, formatError, formatHelp, formatHours, TerminalUi } from './terminal-ui.js'
+import { taskCommand } from './task.js'
+import { formatAccount, formatError, formatHelp, formatHours, formatTask, formatTaskApp, formatTaskHelp, TerminalUi } from './terminal-ui.js'
 import { accountFor, CliError, logoutSession, refreshSession } from './vela.js'
 
 async function main(args: string[], terminal: TerminalUi) {
+  if (args[0] === 'task' && (args.length === 1 || (args[1] === 'app' && args.length === 2)
+    || args.includes('--help') || args.includes('-h'))) {
+    process.stdout.write(formatTaskHelp() + '\n')
+    return
+  }
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     process.stdout.write(formatHelp(terminal.interactive) + '\n')
     return
   }
   const [command, ...rest] = args
+  if (command === 'task') {
+    terminal.wait(rest[0] === 'app' ? '正在处理任务应用关联' : '正在查询开发任务')
+    return taskCommand(rest)
+  }
   if (command === 'hours') {
     const subcommand = rest[0]
     if (subcommand === 'day') terminal.wait('正在查询工作日报')
@@ -84,6 +94,10 @@ try {
       output = JSON.stringify(result)
     } else if ('authenticated' in result) {
       output = formatAccount('account' in result ? result.account.nickname : undefined, commandArgs[0] === 'login')
+    } else if ('taskApp' in result) {
+      output = formatTaskApp(result, process.stdout.columns)
+    } else if ('task' in result) {
+      output = formatTask(result, process.stdout.columns)
     } else {
       output = formatHours(result, process.stdout.columns)
     }

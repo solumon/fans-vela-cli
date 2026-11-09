@@ -3,6 +3,7 @@ import Table from 'cli-table3'
 import ora from 'ora'
 import stringWidth from 'string-width'
 import type { DayReport, Project, hoursCommand } from './hours.js'
+import type { TaskAppResult, TaskDetails } from './task.js'
 import type { CliError } from './vela.js'
 
 export class TerminalUi {
@@ -43,6 +44,10 @@ export function formatHelp(interactive: boolean) {
     entry('vela auth status', '查看登录账号'),
     entry('vela logout', '退出登录'),
     '',
+    section('开发任务'),
+    entry('vela task get <任务编号>', '查看开发任务详情'),
+    entry('vela task app add <任务编号> --app <应用名>', '预览添加应用'),
+    '',
     section('工作日报'),
     entry('vela hours day [--date YYYY-MM-DD]', '查看日报'),
     entry('vela hours projects', '查看可填报项目'),
@@ -70,6 +75,100 @@ export function formatError(problem: CliError) {
 
 function terminalText(value: string) {
   return stripVTControlCharacters(value).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')
+}
+
+export function formatTaskHelp() {
+  return [
+    '开发任务',
+    '',
+    '  vela task get <任务编号> [--json]    查看开发任务详情',
+    '  vela task app add <任务编号> (--app <应用名> | --app-id <应用ID>)',
+    '    [--branch <分支>] [--version <版本>] [--apply <previewId>] [--json]',
+    '    分支默认 dev。先预览，确认后在原命令末尾加 --apply <previewId>。',
+  ].join('\n')
+}
+
+export function formatTaskApp(result: TaskAppResult, columns: number | undefined) {
+  const { devTaskId, taskName, appId, appName, submitGitBranch, version } = result.taskApp
+  const fields = [
+    ['任务', `#${devTaskId}  ${terminalText(taskName)}`],
+    ['应用', `#${appId}  ${terminalText(appName)}`],
+    ['提测分支', terminalText(submitGitBranch)],
+    ['版本号', version ?? '—'],
+  ]
+  const width = Math.min(Math.max(columns || 80, 12), 100)
+  const table = formatTaskFields(fields, width)
+  if (result.submitted) return styleText(['bold', 'greenBright'], '✓ 已添加应用并回查确认') + '\n' + table
+  const title = styleText(['bold', 'yellowBright'], '添加应用预览 · 尚未提交')
+  return [title, table, '确认后，在原命令末尾加', `  --apply ${result.previewId}`].join('\n')
+}
+
+export function formatTask(
+  { task, applications, members, plan, attachments, history }: TaskDetails,
+  columns: number | undefined,
+) {
+  const text = (value: unknown) => {
+    if (typeof value !== 'string' && typeof value !== 'number') return '—'
+    return terminalText(String(value)).trim() || '—'
+  }
+  const shanghaiDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short' })
+  const date = (value: unknown) => typeof value === 'number' && Number.isFinite(new Date(value).getTime())
+    ? shanghaiDate.format(value)
+    : text(value)
+  const statuses = new Map([
+    ['0', '未开始'], ['1', '开发中'], ['2', '已提测'], ['3', '已上线'], ['4', '已取消'],
+  ])
+  const status = text(task.status)
+  const fields = [
+    ['任务编号', text(task.id)],
+    ['任务标题', text(task.taskName)],
+    ['状态', statuses.get(status) ?? status],
+    ['所属项目', text(task.projectName)],
+    ['项目负责人', text(task.projectOwnerNickname)],
+    ['开发负责人', text(task.ownerNickname)],
+    ['开发启动', date(task.devStartTime)],
+    ['预计提测', date(task.testSubmitPlanTime)],
+    ['开发成员', members.map(member => text(member.nickname)).join('、') || '—'],
+    ['开发计划', `${plan.length} 项`],
+    ['附件', `${attachments.length} 个`],
+    ['变更历史', `${history.length} 条`],
+  ]
+  const width = Math.min(Math.max(columns || 80, 12), 100)
+  const details = formatTaskFields(fields, width)
+
+  const appColumns = ['应用名称', '提测 Git 分支', '版本号']
+  const apps = applications.map(app => [text(app.appName), text(app.submitGitBranch), text(app.version)])
+  const branchWidth = Math.max(13, Math.floor((width - 20) / 3))
+  const appTable = width >= 44
+    ? formatTaskTable(appColumns, apps, [width - branchWidth - 20, branchWidth, 10])
+    : formatTaskTable(['应用信息'], apps.map(([name, branch, version]) => [
+      `${name}\n提测分支 ${branch}\n版本号 ${version}`,
+    ]), [width - 4])
+
+  return [
+    styleText(['bold', 'cyanBright'], '开发任务'),
+    details,
+    '',
+    styleText(['bold', 'cyanBright'], `关联应用（${applications.length}）`),
+    applications.length ? appTable : '暂无关联应用。',
+  ].join('\n')
+}
+
+function formatTaskFields(fields: string[][], width: number) {
+  return width >= 29
+    ? formatTaskTable(['字段', '内容'], fields, [10, width - 17])
+    : formatTaskTable(['任务信息'], fields.map(([label, value]) => [`${label}\n${value}`]), [width - 4])
+}
+
+function formatTaskTable(headings: string[], rows: string[][], widths: number[]) {
+  const table = new Table({
+    head: headings.map((label, index) => styleText(['bold', 'blueBright'], wrapTableCell(label, widths[index]))),
+    colWidths: widths.map(width => width + 2),
+    chars: { 'top-left': '╭', 'top-right': '╮', 'bottom-left': '╰', 'bottom-right': '╯' },
+    style: { compact: headings.length > 1, head: [], border: [] },
+  })
+  for (const row of rows) table.push(row.map((value, index) => wrapTableCell(value, widths[index])))
+  return table.toString()
 }
 
 const graphemes = new Intl.Segmenter()

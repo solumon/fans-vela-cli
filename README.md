@@ -75,6 +75,27 @@ vela logout
 
 `vela logout` 调用 VELA 的退出接口，服务端确认后清除本地会话。如果已经退出，重复执行也会成功。退出请求失败时，CLI 会保留本地会话，便于重试。
 
+## 开发任务
+
+```bash
+vela task
+vela task get 26
+vela task get 26 --json
+```
+
+`get` 按开发任务编号只读查询。终端分别用表格显示任务信息和关联应用。`--json`、管道或重定向输出单行 JSON，其中 `task` 为任务详情，`applications` 为关联应用，`members` 为开发成员，`plan` 为开发计划，`attachments` 为附件清单，`history` 为自动翻页获取的变更记录。
+
+### 关联应用
+
+```bash
+vela task app add 26 --app example-api --branch dev
+vela task app add 26 --app example-api --branch dev --apply "$preview_id"
+```
+
+`--app` 按应用名称精确匹配。遇到同名应用，或已知应用 ID，可改用 `--app-id`。提测分支默认是 `dev`，可用 `--version` 指定版本号（如 `2.4.9`）。
+
+首次运行显示预览，`--json` 可取得 `previewId`。确认后用相同参数加上 `--apply`，命令会创建关联并回查。一个应用在同一任务中只关联一次。如果返回 `SUBMIT_UNCERTAIN`，先用 `vela task get` 查看任务的关联应用，再决定是否重新预览。
+
 ## 工作日报
 
 ```bash

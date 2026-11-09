@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test test/hours.test.mjs",
+    "test": "npm run build && node --test test/*.test.mjs",
     "prepack": "npm run build",
     "install:skill": "sh scripts/install-skill.sh",
     "pack:release": "sh scripts/pack-release.sh"
