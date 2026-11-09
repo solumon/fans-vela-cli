@@ -80,13 +80,14 @@ vela logout
 ```bash
 vela hours day
 vela hours day --date 2026-11-06
+vela hours day --json
 vela hours projects
 vela hours projects --json
 vela hours submit --date 2026-11-06 --file entries.json
 vela hours submit --date 2026-11-06 --file entries.json --apply "$preview_id"
 ```
 
-`day` 默认查询北京时间当天，返回手填工时、待办自动工时和当天合计。`projects` 在交互终端用两列表格显示可添加的项目 ID 和名称，终端太窄时逐项显示。通过管道、重定向或 `--json` 获取单行 JSON。
+`day` 默认查询北京时间当天，在交互终端先显示合计，再用表格列出项目、手填工时、待办工时、进度和工作内容，窄终端用单列表格。`projects` 在交互终端用两列表格显示可添加的项目 ID 和名称，终端太窄时逐项显示。这两个命令都可以通过管道、重定向或 `--json` 获取单行 JSON。
 
 `entries.json` 是单日的项目数组。新增记录要提供工时、进度和工作内容，修改记录可以只提供变更字段。使用 `--file -` 可从标准输入读取 JSON。
 
@@ -101,7 +102,7 @@ vela hours submit --date 2026-11-06 --file entries.json --apply "$preview_id"
 
 ## AI 调用
 
-通过非交互方式调用时，执行结果是标准输出中的单行 JSON。在交互终端调用 `vela hours projects --json` 也能获取相同的格式。二维码和扫码提示写到标准错误，登录令牌保存在本机。AI 可读取退出码以及结果中的 `error.code`，例如 `LOGIN_REQUIRED`、`SESSION_EXPIRED` 或 `NETWORK_ERROR`。
+交互终端会显示表格、填报预览和等待动画。通过管道、重定向或为命令添加 `--json`，执行结果会以单行 JSON 写到标准输出。二维码和扫码提示写到标准错误，登录令牌保存在本机。AI 可读取退出码以及结果中的 `error.code`，例如 `LOGIN_REQUIRED`、`SESSION_EXPIRED` 或 `NETWORK_ERROR`。
 
 成功退出码为 `0`，执行失败为 `1`，参数无效为 `2`。
 

@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { stripVTControlCharacters } from 'node:util'
+import stringWidth from 'string-width'
 
 const date = '2024-09-02'
 const cli = fileURLToPath(new URL('../dist/cli.mjs', import.meta.url))
@@ -44,7 +46,7 @@ function setup(t) {
       encoding: 'utf8',
       timeout: 10_000,
     })
-    assert(p.stdout, p.stderr)
+    assert(p.stdout || p.stderr, p.error?.message)
     return p
   }
   function run(args, input, mode) {
@@ -63,8 +65,9 @@ test('formats projects for a terminal and preserves the JSON output for scripts'
   const { runRaw } = setup(t)
   const table = runRaw(['projects'], { columns: 80 })
   assert.equal(table.status, 0)
-  assert.match(table.stdout, /│ 项目 ID +│ 项目名 +│/)
-  assert.match(table.stdout, /│ 30 +│ 可新增项目 +│/)
+  const formatted = stripVTControlCharacters(table.stdout)
+  assert.match(formatted, /│ 项目 ID +│ 项目名 +│/)
+  assert.match(formatted, /│ 30 +│ 可新增项目 +│/)
 
   const narrow = runRaw(['projects'], { columns: 16 })
   assert.equal(narrow.status, 0)
@@ -76,6 +79,67 @@ test('formats projects for a terminal and preserves the JSON output for scripts'
   assert.equal(forced.status, 0)
   assert.equal(piped.stdout, '{"ok":true,"projects":[{"projectId":30,"projectName":"可新增项目"}]}\n')
   assert.equal(forced.stdout, piped.stdout)
+})
+
+test('shows submit previews and errors in the terminal and keeps JSON available', t => {
+  const { runRaw, posts } = setup(t)
+  const args = ['submit', '--date', date, '--file', '-']
+  const terminal = runRaw(args, { columns: 80, input: entries })
+  assert.equal(terminal.status, 0)
+  const formatted = stripVTControlCharacters(terminal.stdout)
+  assert.match(formatted, /填报预览  2024-09-02 · 尚未提交/)
+  assert.match(formatted, /手填工时  2 → 3 小时/)
+  assert.match(formatted, /工作内容  新记录/)
+  const token = formatted.match(/--apply ([0-9a-f]{64})/)?.[1]
+  assert.ok(token)
+
+  const json = runRaw([...args, '--json'], { columns: 80, input: entries })
+  assert.equal(json.status, 0)
+  assert.equal(json.stderr, '')
+  assert.equal(JSON.parse(json.stdout).previewId, token)
+  assert.deepEqual(posts(), [])
+
+  const badInput = runRaw(args, { columns: 80, input: [] })
+  assert.equal(badInput.status, 2)
+  assert.equal(badInput.stdout, '')
+  assert.match(badInput.stderr, /INVALID_USAGE/)
+})
+
+test('formats a daily report for a terminal and preserves JSON for scripts', t => {
+  const { runRaw, setCards } = setup(t)
+  const content = '第一行\n' + '播放链路联调'.repeat(6) + '末尾'
+  setCards([{ ...existing[0], content }, ...existing.slice(1)])
+  const args = ['day', '--date', date]
+
+  const terminal = runRaw(args, { columns: 80 })
+  assert.equal(terminal.status, 0)
+  const formatted = stripVTControlCharacters(terminal.stdout)
+  assert.match(formatted, /^工作日报  2024-09-02\n合计 5\.5 小时\n/)
+  assert.match(formatted, /^╭.*╮$/m)
+  assert.match(formatted, /^╰.*╯$/m)
+  assert.equal(formatted.split('\n').filter(line => line.startsWith('├')).length, 1)
+  assert.match(formatted, /│ 项目 +│ 手填工时 +│ 待办工时 +│ 进度 +│ 工作内容 +│/)
+  assert.match(formatted, /│ 修改项目  #10 +│ {3}2 小时 │ 1\.5 小时 │ {2}40% │ 第一行 +│/)
+  assert.match(formatted, /│ 未填写项目  #40 +│ +未填报 │/)
+  assert.ok(formatted.includes('末尾'))
+  assert.ok(formatted.split('\n').every(line => stringWidth(line) <= 80))
+
+  const narrow = runRaw(args, { columns: 32 })
+  assert.equal(narrow.status, 0)
+  const compact = stripVTControlCharacters(narrow.stdout)
+  assert.match(compact, /│ 项目日报 +│/)
+  assert.match(compact, /│ 修改项目  #10 +│/)
+  assert.ok(compact.includes('末尾'))
+  assert.ok(compact.split('\n').every(line => stringWidth(line) <= 32))
+
+  const piped = runRaw(args)
+  const forced = runRaw([...args, '--json'], { columns: 80 })
+  assert.equal(piped.status, 0)
+  assert.equal(forced.status, 0)
+  assert.equal(forced.stdout, piped.stdout)
+  const day = JSON.parse(piped.stdout)
+  assert.deepEqual(Object.keys(day), ['ok', 'date', 'totalHours', 'cards'])
+  assert.equal(day.cards[0].content, content)
 })
 
 test('previews and applies a multi-project update without overwriting other fields', t => {

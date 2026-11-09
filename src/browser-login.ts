@@ -1,10 +1,11 @@
 import { CliError, loginPage, parseSession, unwrap, wecomLoginUrl, type Session } from './vela.js'
 import type { Page } from 'playwright'
+import type { TerminalUi } from './terminal-ui.js'
 
 const wecomFrame = '#pane-wecom iframe[src^="https://login.work.weixin.qq.com/"]'
 const wecomQrEndpoint = 'https://login.work.weixin.qq.com/wwlogin/sso/qrcode'
 
-async function showQr(page: Page, showBrowser: boolean) {
+async function showQr(page: Page, showBrowser: boolean, timeoutSeconds: number, terminal: TerminalUi) {
   const openWecomTab = () =>
     page.getByRole('tab', { name: '企微扫码登录', exact: true }).click({ timeout: 15_000 })
   let image: Buffer | undefined
@@ -29,13 +30,16 @@ async function showQr(page: Page, showBrowser: boolean) {
   }
   if (image) {
     const { printTerminalQr } = await import('./terminal-qr.js')
-    printTerminalQr(image)
+    terminal.stop()
+    printTerminalQr(image, timeoutSeconds)
   } else {
+    terminal.stop()
     process.stderr.write('请在打开的 Chrome 窗口中用企业微信扫码并确认。\n')
   }
+  terminal.wait('等待企业微信扫码确认')
 }
 
-export async function browserLogin(timeoutSeconds: number, showBrowser: boolean): Promise<Session> {
+export async function browserLogin(timeoutSeconds: number, showBrowser: boolean, terminal: TerminalUi): Promise<Session> {
   const { chromium, errors } = await import('playwright')
   const browser = await chromium.launch({ channel: 'chrome', headless: !showBrowser }).catch(() => {
     throw new CliError('BROWSER_UNAVAILABLE', '无法启动 Chrome，请确认本机已安装 Google Chrome。')
@@ -45,12 +49,13 @@ export async function browserLogin(timeoutSeconds: number, showBrowser: boolean)
     await page.goto(loginPage, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {
       throw new CliError('NETWORK_ERROR', 'Chrome 未能打开 VELA 登录页，请检查网络后重试。')
     })
+    terminal.wait('正在准备企业微信二维码')
     // Listen before selecting the tab so even a fast authorization is captured.
     const responsePromise = page.waitForResponse(
       response => response.url() === wecomLoginUrl && response.request().method() === 'POST',
       { timeout: timeoutSeconds * 1_000 },
     )
-    const [response] = await Promise.all([responsePromise, showQr(page, showBrowser)])
+    const [response] = await Promise.all([responsePromise, showQr(page, showBrowser, timeoutSeconds, terminal)])
     const payload: unknown = await response.json().catch(() => undefined)
     const session = parseSession(unwrap(payload, response.status(), 'login'))
     if (!session) throw new CliError('API_ERROR', 'VELA 未返回完整的扫码登录会话。')

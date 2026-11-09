@@ -16,6 +16,7 @@ type Card = Project & {
   content: string | null
   todoHours: number
 }
+export type DayReport = { date: string; totalHours: number | null; cards: Card[] }
 type Entry = { projectId: string } & Partial<Fields>
 
 const invalid = (message: string) => new CliError('INVALID_USAGE', message, 2)
@@ -64,7 +65,7 @@ function parseCards(raw: unknown): Card[] {
   })
 }
 
-function dayResult(date: string, cards: Card[]) {
+function dayResult(date: string, cards: Card[]): DayReport {
   const total = cards.reduce((sum, card) => sum + (card.hours ?? 0) + card.todoHours, 0)
   return {
     date,
@@ -198,13 +199,13 @@ export async function hoursCommand(args: string[]) {
   if (command !== 'day' && command !== 'projects' && command !== 'submit') {
     throw invalid('请使用 vela hours day、projects 或 submit。')
   }
-  let values: { date?: string; file?: string; apply?: string; json?: boolean }
+  let values: { date?: string; file?: string; apply?: string }
   try {
     const date = { type: 'string' } as const
     values = parseArgs({
       args: rest,
       options: command === 'submit' ? { date, file: { type: 'string' }, apply: { type: 'string' } }
-        : command === 'day' ? { date } : { json: { type: 'boolean' } },
+        : command === 'day' ? { date } : {},
     }).values
   } catch {
     throw invalid('工时命令参数无效，请运行 vela --help。')
@@ -231,7 +232,7 @@ export async function hoursCommand(args: string[]) {
 
     const getProjects = () => read(active => requestWithSession(active, reports + '/reportable-project-list'))
       .then(raw => readProjects(raw, project => project))
-    if (command === 'projects') return { ok: true, projects: await getProjects(), json: values.json }
+    if (command === 'projects') return { ok: true, projects: await getProjects() }
     const getCards = () => read(active => requestWithSession(active, reports + '/my-card-list?date=' + date))
       .then(parseCards)
     const cards = await getCards()
