@@ -7,7 +7,7 @@ import { asObject, CliError, identityFor, refreshSession, requestWithSession } f
 const reports = '/pmp/daily-report'
 
 type ProjectId = number | string
-type Project = { projectId: ProjectId; projectName: string }
+export type Project = { projectId: ProjectId; projectName: string }
 type Fields = { hours: number; progress: number; content: string }
 type Card = Project & {
   filled: boolean
@@ -198,13 +198,13 @@ export async function hoursCommand(args: string[]) {
   if (command !== 'day' && command !== 'projects' && command !== 'submit') {
     throw invalid('请使用 vela hours day、projects 或 submit。')
   }
-  let values: { date?: string; file?: string; apply?: string }
+  let values: { date?: string; file?: string; apply?: string; json?: boolean }
   try {
     const date = { type: 'string' } as const
     values = parseArgs({
       args: rest,
       options: command === 'submit' ? { date, file: { type: 'string' }, apply: { type: 'string' } }
-        : command === 'day' ? { date } : {},
+        : command === 'day' ? { date } : { json: { type: 'boolean' } },
     }).values
   } catch {
     throw invalid('工时命令参数无效，请运行 vela --help。')
@@ -231,7 +231,7 @@ export async function hoursCommand(args: string[]) {
 
     const getProjects = () => read(active => requestWithSession(active, reports + '/reportable-project-list'))
       .then(raw => readProjects(raw, project => project))
-    if (command === 'projects') return { ok: true, projects: await getProjects() }
+    if (command === 'projects') return { ok: true, projects: await getProjects(), json: values.json }
     const getCards = () => read(active => requestWithSession(active, reports + '/my-card-list?date=' + date))
       .then(parseCards)
     const cards = await getCards()

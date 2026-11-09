@@ -31,14 +31,24 @@ function setup(t) {
   const setToken = accessToken => writeFileSync(session, JSON.stringify({ accessToken, refreshToken: 'old-refresh' }), { mode: 0o600 })
   setCards(existing)
   setToken('active')
-  function run(args, input, mode) {
+  function runRaw(args, { input, mode, columns } = {}) {
     const p = spawnSync(process.execPath, ['--import', preload, cli, 'hours', ...args], {
-      env: { ...process.env, XDG_STATE_HOME: dir, VELA_TEST_STATE: state, VELA_TEST_MODE: mode ?? '' },
+      env: {
+        ...process.env,
+        XDG_STATE_HOME: dir,
+        VELA_TEST_STATE: state,
+        VELA_TEST_MODE: mode ?? '',
+        VELA_TEST_COLUMNS: columns ?? '',
+      },
       input: input === undefined ? undefined : JSON.stringify(input),
       encoding: 'utf8',
       timeout: 10_000,
     })
     assert(p.stdout, p.stderr)
+    return p
+  }
+  function run(args, input, mode) {
+    const p = runRaw(args, { input, mode })
     return [p.status, JSON.parse(p.stdout)]
   }
   const submit = (input, apply, mode) => run(
@@ -46,8 +56,27 @@ function setup(t) {
   )
   const posts = () => existsSync(state + '.posts')
     ? readFileSync(state + '.posts', 'utf8').trim().split('\n').map(JSON.parse) : []
-  return { run, submit, posts, setCards, setToken, session }
+  return { run, runRaw, submit, posts, setCards, setToken, session }
 }
+
+test('formats projects for a terminal and preserves the JSON output for scripts', t => {
+  const { runRaw } = setup(t)
+  const table = runRaw(['projects'], { columns: 80 })
+  assert.equal(table.status, 0)
+  assert.match(table.stdout, /│ 项目 ID +│ 项目名 +│/)
+  assert.match(table.stdout, /│ 30 +│ 可新增项目 +│/)
+
+  const narrow = runRaw(['projects'], { columns: 16 })
+  assert.equal(narrow.status, 0)
+  assert.equal(narrow.stdout, '30  可新增项目\n')
+
+  const piped = runRaw(['projects'])
+  const forced = runRaw(['projects', '--json'], { columns: 80 })
+  assert.equal(piped.status, 0)
+  assert.equal(forced.status, 0)
+  assert.equal(piped.stdout, '{"ok":true,"projects":[{"projectId":30,"projectName":"可新增项目"}]}\n')
+  assert.equal(forced.stdout, piped.stdout)
+})
 
 test('previews and applies a multi-project update without overwriting other fields', t => {
   const { run, submit, posts } = setup(t)

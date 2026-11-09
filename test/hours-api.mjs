@@ -5,6 +5,11 @@ const file = process.env.VELA_TEST_STATE
 const mode = process.env.VELA_TEST_MODE
 const reply = data => Response.json({ code: 0, data })
 
+if (process.env.VELA_TEST_COLUMNS) {
+  process.stdout.isTTY = true
+  process.stdout.columns = Number(process.env.VELA_TEST_COLUMNS)
+}
+
 globalThis.fetch = async (address, init) => {
   const url = new URL(address)
   assert.equal(url.origin, 'https://vela-api.up366demo.cn')

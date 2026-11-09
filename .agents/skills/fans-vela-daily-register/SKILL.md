@@ -5,12 +5,12 @@ description: 在 VELA 工作日报（vela.up366demo.cn/pmp/dailyreport）查询�
 
 # VELA 工时登记
 
-使用项目提供的 `vela hours` 和当前 VELA CLI 会话。工时命令输出单行 JSON，以 `ok`、`submitted` 和 `error.code` 判断结果。遇到 `LOGIN_REQUIRED` 或 `SESSION_EXPIRED` 时，请用户在终端运行 `vela login` 并完成扫码，再继续原请求。CLI 不可用时，参考项目 README 的安装与构建步骤。
+使用项目提供的 `vela hours` 和当前 VELA CLI 会话。工时命令在非交互调用时输出单行 JSON，以 `ok`、`submitted` 和 `error.code` 判断结果。遇到 `LOGIN_REQUIRED` 或 `SESSION_EXPIRED` 时，请用户在终端运行 `vela login` 并完成扫码，再继续原请求。CLI 不可用时，参考项目 README 的安装与构建步骤。
 
 ## 查询和准备
 
 - 用 `vela hours day [--date YYYY-MM-DD]` 读取指定日卡片。用户没指定日期时，用命令返回的北京时间当天作为登记日期。预览和提交都传完整日期。有歧义的补登日期先问清。
-- 用当天卡片解析项目名称。如果用户指定的项目不在当天卡片中，或要求查看可添加项目，用 `vela hours projects` 补查。名称先匹配全名，再匹配唯一片段；有多个候选时列出项目名称和 ID，让用户选定。
+- 用当天卡片解析项目名称。如果用户指定的项目不在当天卡片中，或要求查看可添加项目，用 `vela hours projects --json` 补查。用户在交互终端直接运行 `vela hours projects` 时会看到项目表格。名称先匹配全名，再匹配唯一片段；有多个候选时列出项目名称和 ID，让用户选定。
 - 查询结果展示项目、是否已填、手填工时、进度和工作内容，按请求选取相关列。直接采用 CLI 返回的当天合计。未填写或未知的字段显示为「—」。
 - 新记录必须有 `hours`、`progress`、`content`。缺项时向用户补问。修改已填记录只传用户要求变更的字段，由 CLI 保留其他字段。用户只说「登记工时」时，先列当天卡片，再请用户提供项目及填写内容。不要把表单默认值或旧记录当作新记录的填写依据。
 
