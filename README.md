@@ -2,6 +2,8 @@
 
 使用 TypeScript 编写，由 tsdown 打包，运行于 Node.js 26。登录需要安装 Google Chrome。
 
+配套的工时登记技能在 `.agents/skills/fans-vela-daily-register`，可用于 Codex、Cursor、OpenCode、Hermes 与 WorkBuddy。
+
 ## 安装与构建
 
 进入项目目录，用 Node.js 26 执行以下命令。
@@ -25,7 +27,8 @@ npm link
 1. 将仓库克隆到一个长期保留的目录。如果已有该仓库，先确认远端地址，再复用它。
 2. 在项目目录使用 Node.js 26，执行 npm ci、npm run build 和 npm link。检查当前环境能运行 vela --help。如果本机缺少 Google Chrome，请告诉我。
 3. 根据我使用的 AI 工具安装技能：
-   - Codex、Cursor、OpenCode：将仓库 .agents/skills/fans-vela-daily-register 目录复制到 ~/.agents/skills/，让它能跨项目使用。如果已有同名技能，请先比对内容再更新。
+   - Codex、Cursor、OpenCode、Hermes：将仓库 .agents/skills/fans-vela-daily-register 目录复制到 ~/.agents/skills/，让它能跨项目使用。如果已有同名技能，请先比对内容再更新。
+   - Hermes、Cursor、Codex 还各自读自己的 skills 目录：运行 npm run install:skill 会复制到 ~/.agents/skills 并软链到 ~/.hermes/skills、~/.cursor/skills、~/.codex/skills（本机没装的应用自动跳过）。
    - WorkBuddy：运行 npm run pack:release 生成技能 ZIP，告诉我 ZIP 的完整路径，并提示我在 WorkBuddy 的「上传技能」中导入。
 4. 核对 vela 命令和技能文件是否就绪，汇报安装位置。提示我在自己的终端运行 vela login 并用企业微信扫码，再运行 vela auth status 核对登录结果。
 ```
@@ -43,6 +46,20 @@ npm run pack:release
 - `fans-vela-daily-register-<版本>.zip` 是技能包。Codex、Cursor 和 OpenCode 可从本项目的 `.agents/skills/` 发现技能，也可将 ZIP 内的技能目录解压到目标项目的 `.agents/skills/`。WorkBuddy 可通过「上传技能」导入 ZIP。
 
 运行技能的环境需要能调用 `vela` 并访问 VELA。每位使用者用自己的账号扫码登录。
+
+## 把技能装到本机
+
+```bash
+npm run install:skill
+```
+
+脚本把 `.agents/skills/fans-vela-daily-register` 复制到 `~/.agents/skills/fans-vela-daily-register`（Codex、Cursor、OpenCode 与其它读通用目录的 Agent 共用），再给本机存在的 Cursor、Codex、Hermes 软链：
+
+- `~/.cursor/skills/fans-vela-daily-register`
+- `~/.codex/skills/fans-vela-daily-register`
+- `~/.hermes/skills/fans-vela-daily-register`
+
+没装的应用自动跳过；目标已有不同内容时先备份到 `fans-vela-daily-register.bak-<时间戳>`。改完 `SKILL.md` 后重新执行一次即可。WorkBuddy 不走软链，用上面的打包步骤导入 ZIP。
 
 ## 登录、检查与退出
 
