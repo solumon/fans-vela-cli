@@ -71,7 +71,7 @@ vela logout
 
 `vela login` 在终端显示 VELA 的企业微信登录二维码。用企业微信扫码并确认后，CLI 向 VELA 核验当前账号，再保存本地会话。默认等待 180 秒，可用 `vela login --timeout 300` 调整。如需在 Chrome 窗口中显示二维码，运行 `vela login --browser`。
 
-`auth status` 无需打开浏览器。它向 VELA 核验会话，访问令牌过期时尝试刷新。CLI 会话默认位于 `~/.local/state/vela-cli/session.json`。如果设置了 `XDG_STATE_HOME`，文件将位于该目录下的 `vela-cli/session.json`。会话文件和目录的权限分别为 `0600` 和 `0700`。
+`auth status` 无需打开浏览器。它向 VELA 核验会话，访问令牌过期时尝试刷新。CLI 会话默认位于 `~/.vela/auth.json`。如果设置了非空的 `XDG_STATE_HOME`，则使用 `$XDG_STATE_HOME/.vela/auth.json`。如果新文件不存在，CLI 会自动迁移对应的旧会话文件 `~/.local/state/vela-cli/session.json` 或 `$XDG_STATE_HOME/vela-cli/session.json`。会话文件和目录的权限分别为 `0600` 和 `0700`。
 
 `vela logout` 调用 VELA 的退出接口，服务端确认后清除本地会话。如果已经退出，重复执行也会成功。退出请求失败时，CLI 会保留本地会话，便于重试。
 

@@ -5,8 +5,33 @@ import { join } from 'node:path'
 import lockfile from 'proper-lockfile'
 import { asObject, CliError, parseSession, type Session } from './vela.js'
 
-const stateDir = join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'vela-cli')
-const sessionPath = join(stateDir, 'session.json')
+const xdgStateHome = process.env.XDG_STATE_HOME
+const stateDir = join(xdgStateHome || homedir(), '.vela')
+const sessionPath = join(stateDir, 'auth.json')
+const legacyDir = join(xdgStateHome || join(homedir(), '.local', 'state'), 'vela-cli')
+const legacyPath = join(legacyDir, 'session.json')
+
+async function statIfExists(path: string) {
+  try {
+    return await lstat(path)
+  } catch (error) {
+    if (asObject(error).code !== 'ENOENT') throw error
+  }
+}
+
+async function hasLegacySession() {
+  const legacyDirInfo = await statIfExists(legacyDir)
+  if (!legacyDirInfo?.isDirectory() || (legacyDirInfo.mode & 0o077) !== 0) return false
+
+  const legacyInfo = await statIfExists(legacyPath)
+  return legacyInfo?.isFile() && (legacyInfo.mode & 0o077) === 0
+}
+
+async function migrateLegacySession() {
+  if (!await statIfExists(sessionPath) && await hasLegacySession()) {
+    await rename(legacyPath, sessionPath)
+  }
+}
 
 export async function withSessionLock<T>(action: () => Promise<T>): Promise<T> {
   await mkdir(stateDir, { mode: 0o700, recursive: true })
@@ -28,6 +53,9 @@ export async function withSessionLock<T>(action: () => Promise<T>): Promise<T> {
     throw new CliError('LOCAL_STATE_ERROR', 'VELA CLI 的本地会话暂时不可用，请稍后重试。')
   })
   try {
+    await migrateLegacySession().catch(() => {
+      throw new CliError('LOCAL_STATE_ERROR', `无法将旧的 VELA 会话迁移到 ${sessionPath}，请检查文件和目录权限。`)
+    })
     return await action()
   } finally {
     await release()
@@ -53,9 +81,13 @@ export async function loadSession(): Promise<Session> {
 }
 
 export async function clearSession() {
-  await rm(sessionPath, { force: true }).catch(() => {
+  try {
+    // A legacy copy must not reappear as the active session after logout.
+    if (await hasLegacySession()) await rm(legacyPath, { force: true })
+    await rm(sessionPath, { force: true })
+  } catch {
     throw new CliError('LOCAL_STATE_ERROR', 'VELA 已退出登录，但无法清除本地会话，请检查会话目录后重试。')
-  })
+  }
 }
 
 export async function saveSession(session: Session) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,8 +15,8 @@ const preload = fileURLToPath(new URL('./task-api.mjs', import.meta.url))
 function setup(t, accessToken) {
   const dir = mkdtempSync(join(tmpdir(), 'vela-task-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const sessionDir = join(dir, 'vela-cli')
-  const session = join(sessionDir, 'session.json')
+  const sessionDir = join(dir, '.vela')
+  const session = join(sessionDir, 'auth.json')
   const state = join(dir, 'task-app.json')
   mkdirSync(sessionDir, { mode: 0o700 })
   writeFileSync(state, 'null')
@@ -46,6 +46,33 @@ test('reads all task history pages and saves the refreshed session', t => {
   assert.deepEqual(data.history.map(item => item.id), Array.from({ length: 21 }, (_, index) => index + 1))
   assert.deepEqual(JSON.parse(readFileSync(session, 'utf8')), { accessToken: 'active', refreshToken: 'new-refresh' })
 })
+
+for (const useXdg of [false, true]) {
+  const location = useXdg ? '$XDG_STATE_HOME' : '~'
+  test(`migrates and refreshes the old session in ${location}/.vela/auth.json`, t => {
+    const home = mkdtempSync(join(tmpdir(), 'vela-auth-'))
+    t.after(() => rm(home, { recursive: true, force: true }))
+    const xdg = useXdg ? join(home, 'xdg') : ''
+    const legacyDir = join(xdg || join(home, '.local', 'state'), 'vela-cli')
+    const legacySession = join(legacyDir, 'session.json')
+    mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
+    writeFileSync(legacySession, '{"accessToken":"expired","refreshToken":"refresh"}', { mode: 0o600 })
+
+    const result = spawnSync(process.execPath, ['--import', preload, cli, 'auth', 'status', '--json'], {
+      env: { ...process.env, HOME: home, XDG_STATE_HOME: xdg },
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    assert.equal(result.status, 0, result.stdout || result.stderr)
+    assert.equal(JSON.parse(result.stdout).authenticated, true)
+    assert.equal(existsSync(legacySession), false)
+    const authDir = join(xdg || home, '.vela')
+    const auth = join(authDir, 'auth.json')
+    assert.deepEqual(JSON.parse(readFileSync(auth, 'utf8')), { accessToken: 'active', refreshToken: 'new-refresh' })
+    assert.equal(statSync(authDir).mode & 0o777, 0o700)
+    assert.equal(statSync(auth).mode & 0o777, 0o600)
+  })
+}
 
 test('displays task help and validates IDs before loading a session', t => {
   const { run } = setup(t)

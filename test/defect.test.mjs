@@ -13,10 +13,10 @@ const preload = fileURLToPath(new URL('./defect-api.mjs', import.meta.url))
 function setup(t) {
   const dir = mkdtempSync(join(tmpdir(), 'vela-defect-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const sessionDir = join(dir, 'vela-cli')
+  const sessionDir = join(dir, '.vela')
   const state = join(dir, 'defect.json')
   mkdirSync(sessionDir, { mode: 0o700 })
-  writeFileSync(join(sessionDir, 'session.json'), '{"accessToken":"active","refreshToken":"refresh"}', { mode: 0o600 })
+  writeFileSync(join(sessionDir, 'auth.json'), '{"accessToken":"active","refreshToken":"refresh"}', { mode: 0o600 })
   writeFileSync(state, '{}')
   const run = (args, mode = '') => spawnSync(process.execPath, ['--import', preload, cli, 'defect', ...args], {
     env: { ...process.env, XDG_STATE_HOME: dir, VELA_TEST_MODE: mode, VELA_TEST_STATE: state },
