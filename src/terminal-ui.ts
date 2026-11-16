@@ -2,6 +2,7 @@ import { stripVTControlCharacters, styleText } from 'node:util'
 import Table from 'cli-table3'
 import ora from 'ora'
 import stringWidth from 'string-width'
+import type { DefectResult } from './defect.js'
 import type { DayReport, Project, hoursCommand } from './hours.js'
 import type { TaskAppResult, TaskDetails } from './task.js'
 import type { CliError } from './vela.js'
@@ -48,6 +49,11 @@ export function formatHelp(interactive: boolean) {
     entry('vela task get <任务编号>', '查看开发任务详情'),
     entry('vela task app add <任务编号> --app <应用名>', '预览添加应用'),
     '',
+    section('缺陷'),
+    entry('vela defect list', '查询当前由我处理的缺陷'),
+    entry('vela defect get <缺陷编号>', '查看缺陷详情'),
+    entry('vela defect transition <缺陷编号>', '预览流转，运行 vela defect 查看用法'),
+    '',
     section('工作日报'),
     entry('vela hours day [--date YYYY-MM-DD]', '查看日报'),
     entry('vela hours projects', '查看可填报项目'),
@@ -86,6 +92,118 @@ export function formatTaskHelp() {
     '    [--branch <分支>] [--version <版本>] [--apply <previewId>] [--json]',
     '    分支默认 dev。先预览，确认后在原命令末尾加 --apply <previewId>。',
   ].join('\n')
+}
+
+export function formatDefectHelp() {
+  return [
+    '缺陷',
+    '',
+    '  vela defect list [--status <状态>] [--page <页码>] [--page-size <条数>] [--json]',
+    '    查询当前由我处理的缺陷。默认第 1 页，每页 50 条（最多 100 条）。',
+    '  vela defect get <缺陷编号> [--history] [--json]',
+    '    查看详情、附件和可用动作。--history 同时读取流转历史和变更历史。',
+    '  vela defect transition <缺陷编号> [--status <目标状态>] [--to <用户ID>]',
+    '    [--message <备注>] [--apply <previewId>] [--json]',
+    '    省略 --status 时只转交。先预览，确认后在原命令末尾加 --apply <previewId>。',
+  ].join('\n')
+}
+
+function defectText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' ? terminalText(String(value)).trim() || '—' : '—'
+}
+
+const defectDate = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'medium',
+})
+
+function formatDefectDate(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(new Date(value).getTime())
+    ? defectDate.format(value) : defectText(value)
+}
+
+function defectDescription(value: unknown) {
+  if (typeof value !== 'string') return '—'
+  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'", nbsp: ' ' }
+  return value.replace(/<br\b[^>]*>|<\/(?:p|li|div|h[1-6])\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '').replace(/&(amp|lt|gt|quot|apos|#39|nbsp);/g, (_, key: string) => entities[key])
+    .split(/\r\n|[\r\n]/).map(terminalText).join('\n').trim() || '—'
+}
+
+export function formatDefect(result: DefectResult, columns: number | undefined) {
+  const width = Math.min(Math.max(columns || 80, 12), 110)
+  if ('defects' in result) {
+    const header = `我的缺陷 · 第 ${result.page} 页 · 共 ${result.total} 条`
+    if (!result.defects.length) return header + '\n本页暂无缺陷。'
+    const rows = result.defects.map((defect: Record<string, unknown>) => [
+      defectText(defect.id), defectText(defect.title), defectText(defect.severityName ?? defect.severity),
+      defectText(defect.statusName), defectText(defect.handlerNickname ?? defect.handlerUserId),
+      formatDefectDate(defect.createTime),
+    ])
+    const table = width >= 76
+      ? formatTaskTable(['编号', '标题', '等级', '状态', '处理人', '创建时间'],
+        rows, [4, width - 65, 4, 10, 9, 19])
+      : formatTaskTable(['缺陷'], rows.map(([id, title, severity, status, handler, date]) => [
+        `#${id} ${title}\n${severity} · ${status} · ${handler}\n${date}`,
+      ]), [width - 4])
+    return header + '\n' + table
+  }
+  if ('transition' in result) {
+    const { id, title, eventName, before, after, message } = result.transition
+    const handler = (name: unknown, id: unknown) =>
+      id === undefined ? defectText(name) : `${defectText(name)} (#${defectText(id)})`
+    const actualHandler = result.submitted
+      ? handler(result.defect.handlerNickname, result.defect.handlerUserId ?? undefined)
+      : after.handlerId === undefined ? '由 VELA 决定' : handler(after.handlerName, after.handlerId)
+    const fields = [
+      ['缺陷', `#${id} ${defectText(title)}`],
+      ['动作', defectText(eventName)],
+      ['状态', `${defectText(before.statusName)} → ${defectText(after.statusName)}`],
+      ['处理人', `${handler(before.handlerName, before.handlerId)} → ${actualHandler}`],
+      ['备注', message?.split('\n').map(terminalText).join('\n') ?? '—'],
+    ]
+    const table = formatTaskFields(fields, width, '流转信息')
+    if (result.submitted) return '✓ 已流转并回查确认\n' + table
+    return ['缺陷流转预览 · 尚未提交', table, '确认后，在原命令末尾加', `  --apply ${result.previewId}`].join('\n')
+  }
+
+  const { defect, actions, attachments, transitionHistory, changeHistory } = result
+  const row: Record<string, unknown> = defect
+  const fields = [
+    ['标题', defectText(defect.title)],
+    ['所属项目', defectText(row.projectName ?? row.projectId)],
+    ['严重等级', defectText(defect.severityName ?? row.severity)],
+    ['状态', defectText(defect.statusName)],
+    ['当前处理人', defectText(row.handlerNickname ?? row.handlerUserId)],
+    ['创建人', defectText(row.creatorNickname ?? row.creator)],
+    ['创建时间', formatDefectDate(row.createTime)],
+    ['描述', defectDescription(row.description)],
+    ['附件', attachments.map(item => defectText(item.fileName ?? item.name ?? item.id)).join('\n') || '—'],
+  ]
+  const sections = [`缺陷 #${defect.id}`, formatTaskFields(fields, width, '缺陷详情'), '可用流转动作']
+  const actionRows = actions.map(action => [
+    action.event === 'handoff' ? '转交（状态不变）' : defectText(action.targetStatusName),
+    [
+      action.handlerRequired ? '须指定处理人' : '处理人可选',
+      action.handlerCandidateUserIds.length ? `候选 ID：${action.handlerCandidateUserIds.join('、')}` : '',
+      action.missingRequiredFields.length
+        ? '待补齐：' + action.missingRequiredFields.map(field => defectText(field.label ?? field.key)).join('、') : '',
+    ].filter(Boolean).join(' · '),
+  ])
+  sections.push(actionRows.length ? formatTaskFields(actionRows, width, '流转动作') : '暂无可用流转动作。')
+  if (transitionHistory && changeHistory) {
+    const logRows = transitionHistory.map(log => [
+      formatDefectDate(log.createTime),
+      [log.event, `${defectText(log.fromState)} → ${defectText(log.toState)}`, log.handlerUserId, defectDescription(log.remark)]
+        .map(defectText).join(' · '),
+    ])
+    const changes = changeHistory.map(log => [
+      formatDefectDate(log.createTime),
+      [log.creatorNickname ?? log.creator, log.changeType, log.remark].map(defectText).join(' · '),
+    ])
+    sections.push(`流转历史（${logRows.length} 条）`, logRows.length ? formatTaskFields(logRows, width, '流转历史') : '暂无记录。',
+      `变更历史（${changes.length} 条）`, changes.length ? formatTaskFields(changes, width, '变更历史') : '暂无记录。')
+  }
+  return sections.join('\n')
 }
 
 export function formatTaskApp(result: TaskAppResult, columns: number | undefined) {
@@ -154,10 +272,10 @@ export function formatTask(
   ].join('\n')
 }
 
-function formatTaskFields(fields: string[][], width: number) {
+function formatTaskFields(fields: string[][], width: number, compactHeading = '任务信息') {
   return width >= 29
     ? formatTaskTable(['字段', '内容'], fields, [10, width - 17])
-    : formatTaskTable(['任务信息'], fields.map(([label, value]) => [`${label}\n${value}`]), [width - 4])
+    : formatTaskTable([compactHeading], fields.map(([label, value]) => [`${label}\n${value}`]), [width - 4])
 }
 
 function formatTaskTable(headings: string[], rows: string[][], widths: number[]) {

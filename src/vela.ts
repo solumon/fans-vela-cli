@@ -79,9 +79,9 @@ async function request(
   return unwrap(payload, response.status, operation)
 }
 
-export function requestWithSession(session: Session, path: string, body?: object) {
+export function requestWithSession(session: Session, path: string, body?: object, writeMethod: 'POST' | 'PUT' = 'POST') {
   return request(path, body === undefined ? 'status' : 'report-submit', {
-    method: body === undefined ? 'GET' : 'POST',
+    method: body === undefined ? 'GET' : writeMethod,
     headers: {
       Accept: 'application/json',
       Authorization: 'Bearer ' + session.accessToken,

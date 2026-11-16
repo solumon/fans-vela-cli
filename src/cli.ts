@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util'
 import { browserLogin } from './browser-login.js'
+import { defectCommand } from './defect.js'
 import { hoursCommand } from './hours.js'
 import { clearSession, loadSession, saveSession, withSessionLock } from './session.js'
 import { taskCommand } from './task.js'
-import { formatAccount, formatError, formatHelp, formatHours, formatTask, formatTaskApp, formatTaskHelp, TerminalUi } from './terminal-ui.js'
+import { formatAccount, formatDefect, formatDefectHelp, formatError, formatHelp, formatHours, formatTask, formatTaskApp, formatTaskHelp, TerminalUi } from './terminal-ui.js'
 import { accountFor, CliError, logoutSession, refreshSession } from './vela.js'
 
 async function main(args: string[], terminal: TerminalUi) {
+  if (args[0] === 'defect' && (args.length === 1 || args.includes('--help') || args.includes('-h'))) {
+    process.stdout.write(formatDefectHelp() + '\n')
+    return
+  }
   if (args[0] === 'task' && (args.length === 1 || (args[1] === 'app' && args.length === 2)
     || args.includes('--help') || args.includes('-h'))) {
     process.stdout.write(formatTaskHelp() + '\n')
@@ -18,6 +23,10 @@ async function main(args: string[], terminal: TerminalUi) {
     return
   }
   const [command, ...rest] = args
+  if (command === 'defect') {
+    terminal.wait(rest[0] === 'transition' ? '正在处理缺陷流转' : '正在查询缺陷')
+    return defectCommand(rest)
+  }
   if (command === 'task') {
     terminal.wait(rest[0] === 'app' ? '正在处理任务应用关联' : '正在查询开发任务')
     return taskCommand(rest)
@@ -98,6 +107,8 @@ try {
       output = formatTaskApp(result, process.stdout.columns)
     } else if ('task' in result) {
       output = formatTask(result, process.stdout.columns)
+    } else if ('defects' in result || 'defect' in result || 'transition' in result) {
+      output = formatDefect(result, process.stdout.columns)
     } else {
       output = formatHours(result, process.stdout.columns)
     }

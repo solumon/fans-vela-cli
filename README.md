@@ -96,6 +96,29 @@ vela task app add 26 --app example-api --branch dev --apply "$preview_id"
 
 首次运行显示预览，`--json` 可取得 `previewId`。确认后用相同参数加上 `--apply`，命令会创建关联并回查。一个应用在同一任务中只关联一次。如果返回 `SUBMIT_UNCERTAIN`，先用 `vela task get` 查看任务的关联应用，再决定是否重新预览。
 
+## 缺陷
+
+可在本仓库中调用 `$fans-vela-defect`，让 AI 查询并处理 VELA 缺陷。技能定义见 [fans-vela-defect/SKILL.md](.agents/skills/fans-vela-defect/SKILL.md)。
+
+```bash
+vela defect list
+vela defect list --status 新建 --page 2 --page-size 20 --json
+vela defect get 73
+vela defect get 73 --history --json
+```
+
+`list` 查询当前处理人为登录账号的缺陷，默认包含所有状态，显示第 1 页（每页 50 条）。`get` 按缺陷编号显示详情、附件和账号可用的流转动作。加 `--history` 可查看流转和变更的完整记录。
+
+```bash
+vela defect transition 73 --to 123 --message "请协助排查"
+vela defect transition 73 --status 已解决 --to 123 --message "已修复，请复测"
+vela defect transition 73 --status 已解决 --to 123 --message "已修复，请复测" --apply "$preview_id"
+```
+
+`--status` 接受 VELA 状态名称或编号。省略它时只转交，`--to` 填目标处理人的 VELA 用户 ID。指定状态时，是否需要处理人由该动作决定，备注可选。如果动作还有必填字段，先在 VELA 缺陷详情中补齐。
+
+首次执行流转命令会显示预览，使用 `--json` 可取得 `previewId`。确认后用相同参数加上 `--apply`，命令会提交并回查。遇到 `PREVIEW_STALE` 时重新预览。遇到 `SUBMIT_UNCERTAIN` 时，先用 `vela defect get <缺陷编号> --history` 核对流转结果。
+
 ## 工作日报
 
 ```bash
