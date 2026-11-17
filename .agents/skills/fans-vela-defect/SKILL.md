@@ -1,11 +1,11 @@
 ---
 name: fans-vela-defect
-description: 在 VELA 缺陷列表（vela.up366demo.cn/pmp/defect）查询当前由本人处理的缺陷、查看指定缺陷详情并排查相关项目代码、查询历史、预览并提交转交或状态流转。用户发送 VELA 缺陷详情链接（包括只说「看一下」），或明确提到 VELA 缺陷、PMS 缺陷列表、vela defect 时使用。
+description: 在 VELA 缺陷列表（vela.up366demo.cn/pmp/defect）查询当前由本人处理的缺陷、查看指定缺陷详情并排查相关项目代码、查询历史、预览并提交转交或状态流转、修改已发布的流转留言。用户发送 VELA 缺陷详情链接（包括只说「看一下」），或明确提到 VELA 缺陷、PMS 缺陷列表、vela defect 时使用。
 ---
 
 # VELA 缺陷
 
-使用项目提供的 `vela defect` 和当前 CLI 登录会话。调用时加 `--json`，根据 `ok`、`submitted` 和 `error.code` 判断结果。若返回 `LOGIN_REQUIRED` 或 `SESSION_EXPIRED`，请用户在终端运行 `vela login` 完成扫码。若当前版本没有 `defect` 子命令，提示更新 VELA CLI。
+使用项目提供的 `vela defect` 和当前 CLI 登录会话。调用时加 `--json`，根据 `ok`、`submitted` 和 `error.code` 判断结果。若返回 `LOGIN_REQUIRED` 或 `SESSION_EXPIRED`，请用户在终端运行 `vela login` 完成扫码。若当前版本没有 `defect` 子命令，提示更新 VELA CLI。若报「本地会话暂时不可用」，先检查会话锁。确认是沙箱禁止创建临时锁时，按工具审批机制重试原命令。
 
 ## 查询
 
@@ -21,6 +21,22 @@ description: 在 VELA 缺陷列表（vela.up366demo.cn/pmp/defect）查询当前
 
 ## 流转
 
-1. 先读详情，从 `actions` 确认当前账号可执行的动作、`targetStatusName`、候选处理人及必填要求。只转交时使用 `--to <VELA 用户 ID>`，省略 `--status`。变更状态时用 `--status <状态名或编号>`，动作的 `handlerRequired` 为真时须指定处理人。如果 `handlerCandidateUserIds` 非空，目标 ID 必须在其中。只知道姓名且缺陷数据无法唯一确定 VELA 用户 ID 时，请用户补充 ID。收到 `DEFECT_FIELDS_REQUIRED` 时，列出字段并提示用户先在 VELA 缺陷详情页补齐。
-2. 用 `vela defect transition <缺陷编号> [--status <状态>] [--to <用户ID>] [--message <备注>] --json` 生成预览，核对缺陷编号、动作、状态和处理人前后值及备注。备注按用户提供的内容作为一个参数安全传递。用户要求预览或尚未明确授权这项具体操作时，展示预览并等待确认。已有明确授权时，核对预览与授权一致后，使用相同参数加 `--apply <previewId>`。
-3. `submitted: true` 表示 CLI 已回查确认。用返回的 `defect` 汇报最终状态和处理人。遇到 `PREVIEW_STALE` 时重新读取并生成预览，若变化超出原授权范围，请用户确认新的预览。遇到 `SUBMIT_UNCERTAIN` 时，先用 `vela defect get <缺陷编号> --history --json` 核对当前状态和最新流转记录，说明能确认的结果，避免自动重发。
+1. 先读详情，从 `actions` 确认可用动作、目标状态、候选处理人和必填字段。用户明确指定处理人时用指定的人，否则默认用缺陷创建人，从 `defect.creator` 取 VELA 用户 ID，并用 `creatorNickname` 核对。用 `--to <用户ID>` 指定处理人，即使该动作的处理人为可选项。只转交时省略 `--status`。若 `handlerCandidateUserIds` 非空，目标 ID 必须在其中。目标人无法唯一确定或不在候选中时，请用户指定可用的处理人。同一对话中已确认当前缺陷修复完成，用户接着说「流转下缺陷」时，按「已解决」执行。缺陷或目标动作有实质歧义时再澄清。
+2. 流转为「已解决」时，按用户明确提供的值填写，对空缺字段使用以下默认值，保留已有值：
+   - 处理办法为「已修复」。
+   - 修复人和责任人为当前 VELA 登录用户本人。用户明确指定修复人或责任人时用指定的人。通过 VELA 的登录身份确认本人，处理人或创建人不一定是本人。
+   - 处理时间取执行时的当前时间，使用用户时区。字段只支持日期时，填写当天日期。
+   - 默认流转备注为 `已修复, 打包 [项目名称] 验证`，将 `[项目名称]`（含方括号）替换为本次修复实际修改、需要打包的代码仓库名，例如 `已修复, 打包 up366-teacher-html 验证`。根据修复记录和 Git 远端核对代码仓库名。签出目录名与远端仓库名不同的话，以远端仓库名为准。无法确定打包目标时，请用户指定要打包的仓库。用户提供完整备注时按其内容填写。
+3. 发现 `missingRequiredFields` 非空或 CLI 返回 `DEFECT_FIELDS_REQUIRED` 时，已有提交授权就由执行者按上述默认值和用户指定值补齐。先检查 CLI 是否支持编辑这些字段，缺少参数时，复用 CLI 会话按[缺陷字段更新接口](references/defect-fields-api.md)补齐并回查。接口不可用时可通过缺陷详情页填写，失焦会自动保存。用户要求只用 CLI 或 API 时，保留该限制并说明具体阻塞。仅预览时，列出拟填写值，保持只读。
+4. 用 `vela defect transition <缺陷编号> [--status <状态>] [--to <用户ID>] [--message <备注>] --json` 生成预览，核对缺陷编号、动作、状态和处理人前后值及备注。备注作为单个参数安全传递。用户要求预览或尚未授权具体操作时，展示预览并等待确认。已有明确授权时，核对预览与授权一致后，用相同参数加 `--apply <previewId>` 提交。
+5. `submitted: true` 表示 CLI 已回查确认。根据返回的 `defect` 汇报最终状态和处理人。遇到 `PREVIEW_STALE` 时重新读取并生成预览，若变化超出原授权范围，请用户确认新的预览。遇到 `SUBMIT_UNCERTAIN` 时，先用 `vela defect get <缺陷编号> --history --json` 核对当前状态和最新流转记录，说明能确认的结果，避免自动重发。
+
+## 修改已发布的流转留言
+
+优先用 `vela defect comments <缺陷编号> --json` 查询评论 ID，按原留言、作者和流转上下文定位唯一评论。用 `vela defect update <缺陷编号> --comment <评论ID> --message <新正文> --json` 预览。CLI 只修改当前登录用户发布的评论，新正文按纯文本替换。获得修改授权并核对预览后，用相同参数加 `--apply <previewId>` 提交。`submitted: true` 表示回查确认，遇到 `SUBMIT_UNCERTAIN` 时先用 `comments` 核对后再决定是否重试。此操作修改缺陷详情「评论」中的留言，原始流转历史中的 `remark` 保留。
+
+旧版 CLI 无此命令时，可复用 VELA CLI 登录会话调用如下接口，API 基址为 `https://vela-api.up366demo.cn/admin-api`。
+
+1. 调用 `GET /pmp/comment/list?bizType=pmp_defect&bizId=<缺陷编号>`。按原留言、作者和流转上下文定位唯一评论，确认 `creator` 是当前登录用户，并取评论的 `id`。缺陷编号和流转历史 ID 都不能当作评论 ID。
+2. 获得修改授权后，调用 `PUT /pmp/comment/update`，JSON 正文例如 `{"id":123,"content":"<p>已修复, 打包 up366-teacher-html 验证</p>"}`。正文是 HTML，修改纯文本时先做 HTML 转义。保留已有的富文本和 @ 提及时按实际提及用户设置可选字段 `mentionUserIds`，值为逗号分隔的用户 ID 字符串。CLI 源码的 `requestWithSession(session, '/pmp/comment/update', body, 'PUT')` 可复用会话，当前 `vela defect transition --message` 用于提交新流转。
+3. 用评论列表接口按同一评论 ID 回查正文。修改接口返回不明确时，先回查再决定是否重试。接口不可用时先说明原因，再使用缺陷详情「评论」区中原留言的「编辑」操作。

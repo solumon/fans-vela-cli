@@ -104,3 +104,55 @@ for (const mode of ['lost-before-write', 'lost-after-write', 'unrelated-log']) {
     assert.deepEqual(writes(), [{ id: 73, event: 'handoff', targetState: '0', handlerUserId: 200 }])
   })
 }
+
+test('lists comments and previews then confirms an escaped update to the original comment', t => {
+  const { run, result, writes } = setup(t)
+  const list = result(['comments', '73'])
+  assert.deepEqual(list.comments.map(comment => comment.id), [387, 388])
+  assert.match(run(['comments', '73'], 'terminal').stdout, /#387.*测试账号/)
+
+  const args = ['update', '73', '--comment', '387', '--message', '新备注 <标签> & 验证\r\n请复测']
+  const preview = result(args)
+  assert.equal(preview.submitted, false)
+  assert.equal(preview.commentUpdate.before, '<p>旧备注</p>')
+  const content = '<p>新备注 &lt;标签&gt; &amp; 验证</p><p>请复测</p>'
+  assert.equal(preview.commentUpdate.after, content)
+  assert.deepEqual(writes(), [])
+
+  const apply = [...args, '--apply', preview.previewId]
+  assert.equal(result(apply, 'comment-changed').error.code, 'PREVIEW_STALE')
+  assert.equal(result(apply, 'different-account').error.code, 'PREVIEW_STALE')
+  assert.deepEqual(writes(), [])
+  const applied = result(apply)
+  assert.equal(applied.submitted, true)
+  assert.equal(applied.comment.id, 387)
+  assert.equal(applied.comment.content, content)
+  assert.equal(result(apply).error.code, 'PREVIEW_STALE')
+  assert.deepEqual(writes(), [{ id: 387, content }])
+  assert.equal(result(['comments', '73']).comments[1].content, '<p>他人的评论</p>')
+})
+
+test('rejects blank text, unknown comments and changes to another author’s comments', t => {
+  const { result, writes } = setup(t)
+  const args = ['update', '73', '--comment']
+  assert.equal(result(['comment-update', '73', '387', '--message', '新备注']).error.code, 'INVALID_USAGE')
+  assert.equal(result(['update', '73', '387', '--message', '新备注']).error.code, 'INVALID_USAGE')
+  assert.equal(result(['update', '73', '--message', '新备注']).error.code, 'INVALID_USAGE')
+  assert.equal(result([...args, '387', '--message', ' ']).error.code, 'INVALID_USAGE')
+  assert.equal(result([...args, '696', '--message', '新备注']).error.code, 'DEFECT_COMMENT_NOT_FOUND')
+  assert.equal(result([...args, '388', '--message', '新备注']).error.code, 'DEFECT_COMMENT_NOT_ALLOWED')
+  assert.equal(result([...args, '387', '--message', '旧备注']).error.code, 'DEFECT_COMMENT_UNCHANGED')
+  assert.deepEqual(writes(), [])
+})
+
+for (const mode of ['lost-before-write', 'lost-after-write']) {
+  test(`reconciles comment updates after a lost response (${mode})`, t => {
+    const { result, writes } = setup(t)
+    const args = ['update', '73', '--comment', '387', '--message', '已修复']
+    const { previewId } = result(args)
+    const applied = result([...args, '--apply', previewId], mode)
+    if (mode === 'lost-after-write') assert.equal(applied.submitted, true)
+    else assert.equal(applied.error.code, 'SUBMIT_UNCERTAIN')
+    assert.deepEqual(writes(), [{ id: 387, content: '<p>已修复</p>' }])
+  })
+}

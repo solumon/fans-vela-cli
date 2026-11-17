@@ -23,6 +23,26 @@ globalThis.fetch = async (address, init) => {
   const previous = JSON.parse(readFileSync(statePath, 'utf8'))
   const defect = previous.defect ?? { ...initial, ...(mode === 'changed-handler' ? { handlerUserId: 101 } : {}) }
 
+  const comments = previous.comments ?? [
+    { id: 387, creator: '100', creatorNickname: '测试账号', bizType: 'pmp_defect', bizId: 73,
+      content: mode === 'comment-changed' ? '<p>同时编辑</p>' : '<p>旧备注</p>', updateTime: 1 },
+    { id: 388, creator: '200', creatorNickname: '测试处理人', bizType: 'pmp_defect', bizId: 73,
+      content: '<p>他人的评论</p>', updateTime: 1 },
+  ]
+
+  if (path === '/pmp/comment/update') {
+    assert.equal(init.method, 'PUT')
+    assert.equal(new Headers(init.headers).get('Content-Type'), 'application/json')
+    const body = JSON.parse(init.body)
+    appendFileSync(statePath + '.writes', JSON.stringify(body) + '\n')
+    if (mode === 'lost-before-write') throw new Error('request lost')
+    const updated = comments.map(comment =>
+      comment.id === body.id ? { ...comment, content: body.content, updateTime: 2 } : comment)
+    writeFileSync(statePath, JSON.stringify({ ...previous, comments: updated }))
+    if (mode === 'lost-after-write') throw new Error('response lost')
+    return reply(true)
+  }
+
   if (path === '/pmp/defect/change-status') {
     assert.equal(init.method, 'PUT')
     assert.equal(new Headers(init.headers).get('Content-Type'), 'application/json')
@@ -33,7 +53,7 @@ globalThis.fetch = async (address, init) => {
     if (body.handlerUserId !== undefined) Object.assign(updated, { handlerUserId: body.handlerUserId, handlerNickname: candidate.nickname })
     const log = { id: 2, event: body.event, creator: mode === 'unrelated-log' ? '999' : '100',
       fromState: String(defect.status), toState: body.targetState, handlerUserId: body.handlerUserId }
-    writeFileSync(statePath, JSON.stringify({ defect: updated, log }))
+    writeFileSync(statePath, JSON.stringify({ ...previous, defect: updated, log }))
     if (mode === 'lost-after-write') throw new Error('response lost')
     return reply(true)
   }
@@ -63,6 +83,10 @@ globalThis.fetch = async (address, init) => {
           missingRequiredFields: mode === 'missing-fields' ? [{ key: 'fixUserId', label: '修复人' }] : null },
         { event: 'handoff', toState: String(defect.status), permitted: true, handlerRequired: true, handlerCandidateUserIds: [] },
       ])
+    case '/pmp/comment/list':
+      assert.equal(query.get('bizType'), 'pmp_defect')
+      assert.equal(query.get('bizId'), '73')
+      return reply(comments)
     case '/pmp/attachment/list':
       assert.equal(query.get('bizType'), 'pmp_defect')
       assert.equal(query.get('bizId'), '73')

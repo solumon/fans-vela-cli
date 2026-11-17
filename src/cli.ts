@@ -24,7 +24,9 @@ async function main(args: string[], terminal: TerminalUi) {
   }
   const [command, ...rest] = args
   if (command === 'defect') {
-    terminal.wait(rest[0] === 'transition' ? '正在处理缺陷流转' : '正在查询缺陷')
+    if (rest[0] === 'transition') terminal.wait('正在处理缺陷流转')
+    else if (rest[0] === 'update') terminal.wait('正在处理缺陷评论')
+    else terminal.wait('正在查询缺陷')
     return defectCommand(rest)
   }
   if (command === 'task') {
@@ -107,7 +109,8 @@ try {
       output = formatTaskApp(result, process.stdout.columns)
     } else if ('task' in result) {
       output = formatTask(result, process.stdout.columns)
-    } else if ('defects' in result || 'defect' in result || 'transition' in result) {
+    } else if ('defects' in result || 'defect' in result || 'transition' in result
+      || 'comments' in result || 'commentUpdate' in result) {
       output = formatDefect(result, process.stdout.columns)
     } else {
       output = formatHours(result, process.stdout.columns)

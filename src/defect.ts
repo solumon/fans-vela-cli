@@ -4,6 +4,7 @@ import { loadSession, saveSession, withSessionLock } from './session.js'
 import { asObject, CliError, identityFor, refreshSession, requestWithSession, type Session } from './vela.js'
 
 const defectPath = '/pmp/defect'
+const commentPath = '/pmp/comment'
 const transitionLogPath = '/fsm/transition-log/page'
 const historyPageSize = 10
 const invalid = (message: string) => new CliError('INVALID_USAGE', message, 2)
@@ -164,9 +165,81 @@ async function getDefect(session: Session, id: number, history: boolean) {
   }
 }
 
-function toRemarkHtml(message: string) {
+function toParagraphHtml(message: string) {
   const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
   return message.split('\n').map(line => `<p>${line.replace(/[&<>"']/g, char => entities[char]) || '<br>'}</p>`).join('')
+}
+
+async function readComments(session: Session, defectId: number) {
+  const rows = readRows(await requestWithSession(session, commentPath + '/list?' + defectQuery(defectId)), '缺陷评论')
+  const seenIds = new Set<number>()
+  return rows.map(row => {
+    const id = integer(row.id, 1)
+    if (id === undefined || seenIds.has(id) || typeof row.content !== 'string'
+      || row.bizType !== 'pmp_defect' || integer(row.bizId, 1) !== defectId) {
+      throw new CliError('API_ERROR', 'VELA 返回了无效的缺陷评论。')
+    }
+    seenIds.add(id)
+    return { ...row, id, content: row.content }
+  })
+}
+
+async function listComments(session: Session, defectId: number) {
+  await readDefect(session, defectId)
+  return { ok: true as const, defectId, comments: await readComments(session, defectId) }
+}
+
+type CommentUpdateInput = { id: number; commentId: number; message: string; apply?: string }
+
+async function updateComment({ id, commentId, message, apply }: CommentUpdateInput, read: Read, session: () => Session) {
+  const { defect, account, current } = await read(async active => {
+    const defect = await readDefect(active, id)
+    const [account, comments] = await Promise.all([identityFor(active), readComments(active, id)])
+    return { defect, account, current: comments.find(comment => comment.id === commentId) }
+  }).catch((error: unknown) => {
+    if (apply && error instanceof CliError && error.code === 'DEFECT_NOT_FOUND') {
+      throw new CliError('PREVIEW_STALE', '缺陷已不可用，请重新预览。')
+    }
+    throw error
+  })
+
+  const stale = () => new CliError('PREVIEW_STALE', '账号、评论或更新参数已变化，请重新预览。')
+  if (!current) {
+    if (apply) throw stale()
+    throw new CliError('DEFECT_COMMENT_NOT_FOUND', `缺陷 #${id} 下找不到评论 #${commentId}。`)
+  }
+  const row: Row = current
+  if (String(row.creator) !== account.id) {
+    if (apply) throw stale()
+    throw new CliError('DEFECT_COMMENT_NOT_ALLOWED', '只能修改当前登录用户发布的评论。')
+  }
+
+  const content = toParagraphHtml(message)
+  const commentUpdate = {
+    defectId: id, defectTitle: defect.title, commentId, author: account.nickname,
+    before: current.content, after: content,
+  }
+  const previewId = createHash('sha256')
+    .update(JSON.stringify(['defect-comment-update', account.id, commentUpdate, row.updateTime]))
+    .digest('hex')
+  if (apply && apply !== previewId) throw stale()
+  if (current.content === content) throw new CliError('DEFECT_COMMENT_UNCHANGED', '评论正文已经是该内容。')
+  if (!apply) return { ok: true as const, submitted: false as const, commentUpdate, previewId }
+
+  try {
+    const result = await requestWithSession(session(), commentPath + '/update', { id: commentId, content }, 'PUT')
+    if (result === false) throw new CliError('API_ERROR', 'VELA 未接受本次评论更新。')
+  } catch (error) {
+    if (!(error instanceof CliError) || !['NETWORK_ERROR', 'SUBMIT_UNCERTAIN'].includes(error.code)) throw error
+  }
+  const confirmed = await read(active => readComments(active, id)).then(
+    comments => comments.find(comment => comment.id === commentId && comment.content === content),
+    () => undefined,
+  )
+  if (!confirmed) {
+    throw new CliError('SUBMIT_UNCERTAIN', `回查未能确认评论更新，请先用 vela defect comments ${id} 核对。`)
+  }
+  return { ok: true as const, submitted: true as const, commentUpdate, comment: confirmed }
 }
 
 type TransitionInput = { id: number; status?: string; to?: number; message?: string; apply?: string }
@@ -228,7 +301,7 @@ async function prepareTransition(session: Session, { id, status, to, message }: 
   }
   const payload = {
     id, event: action.event, targetState: String(target), handlerUserId: assignee?.id,
-    remarkHtml: message === undefined ? undefined : toRemarkHtml(message),
+    remarkHtml: message === undefined ? undefined : toParagraphHtml(message),
   }
   const previewId = createHash('sha256')
     .update(JSON.stringify(['defect-transition', account.id, transition, action, latestLogId]))
@@ -259,6 +332,8 @@ async function reconcileTransition(session: Session, preview: TransitionPreview)
 export type DefectResult =
   | Awaited<ReturnType<typeof listDefects>>
   | Awaited<ReturnType<typeof getDefect>>
+  | Awaited<ReturnType<typeof listComments>>
+  | Awaited<ReturnType<typeof updateComment>>
   | { ok: true; submitted: false; transition: TransitionPreview['transition']; previewId: string }
   | { ok: true; submitted: true; transition: TransitionPreview['transition']; defect: Row; log: Row }
 
@@ -330,7 +405,26 @@ function parseCommand([command, ...args]: string[]) {
       || (values.apply !== undefined && !/^[0-9a-f]{64}$/.test(values.apply))) throw invalid(usage)
     return { command, id, status, to, message: message || undefined, apply: values.apply } as const
   }
-  throw invalid('请使用 vela defect list、get 或 transition，运行 vela defect 查看帮助。')
+  if (command === 'comments') {
+    const usage = '请使用 vela defect comments <缺陷编号>。'
+    const { positionals } = parse({}, usage)
+    const id = integer(positionals[0], 1)
+    if (positionals.length !== 1 || id === undefined) throw invalid(usage)
+    return { command, id } as const
+  }
+  if (command === 'update') {
+    const usage = '请使用 vela defect update <缺陷编号> --comment <评论ID> --message <正文> [--apply <previewId>]。'
+    const { values, positionals } = parse({
+      comment: { type: 'string' }, message: { type: 'string' }, apply: { type: 'string' },
+    }, usage)
+    const id = integer(positionals[0], 1)
+    const commentId = integer(values.comment, 1)
+    const message = values.message?.replace(/\r\n?/g, '\n').trim()
+    if (positionals.length !== 1 || id === undefined || commentId === undefined || !message
+      || (values.apply !== undefined && !/^[0-9a-f]{64}$/.test(values.apply))) throw invalid(usage)
+    return { command, id, commentId, message, apply: values.apply } as const
+  }
+  throw invalid('未知缺陷命令，请运行 vela defect 查看帮助。')
 }
 
 export async function defectCommand(args: string[]): Promise<DefectResult> {
@@ -351,6 +445,8 @@ export async function defectCommand(args: string[]): Promise<DefectResult> {
     }
     if (input.command === 'list') return read(active => listDefects(active, input.page, input.pageSize, input.status))
     if (input.command === 'get') return read(active => getDefect(active, input.id, input.history))
+    if (input.command === 'comments') return read(active => listComments(active, input.id))
+    if (input.command === 'update') return updateComment(input, read, () => session)
     return transitionDefect(input, read, () => session)
   })
 }

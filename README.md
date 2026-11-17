@@ -119,6 +119,16 @@ vela defect transition 73 --status 已解决 --to 123 --message "已修复，请
 
 首次执行流转命令会显示预览，使用 `--json` 可取得 `previewId`。确认后用相同参数加上 `--apply`，命令会提交并回查。遇到 `PREVIEW_STALE` 时重新预览。遇到 `SUBMIT_UNCERTAIN` 时，先用 `vela defect get <缺陷编号> --history` 核对流转结果。
 
+### 查询和更新评论
+
+```bash
+vela defect comments 73 --json
+vela defect update 73 --comment 387 --message "已修复, 打包 up366-teacher-html 验证" --json
+vela defect update 73 --comment 387 --message "已修复, 打包 up366-teacher-html 验证" --apply "$preview_id" --json
+```
+
+先用 `comments` 查询评论 ID，再预览要替换的正文。仅支持更新当前登录用户发布的评论。新正文按纯文本处理，支持换行。用相同参数和预览返回的 `previewId` 提交后，CLI 会回查评论。遇到 `SUBMIT_UNCERTAIN` 时先用 `comments` 核对。流转历史记录保留当时提交的备注。
+
 ## 工作日报
 
 ```bash
@@ -143,6 +153,72 @@ vela hours submit --date 2026-11-06 --file entries.json --apply "$preview_id"
 ```
 
 首次执行 `submit` 会输出改动前后的值和 `previewId`。确认后，用相同日期和输入加上 `--apply`。如果返回 `PREVIEW_STALE`，重新预览。如果返回 `SUBMIT_UNCERTAIN`，先用 `day` 检查是否已保存，再决定是否重新预览。
+
+## VELA 后端 API
+
+下表列出当前 CLI 使用的后端接口。API 基址为 `https://vela-api.up366demo.cn/admin-api`，表中的路径均相对于此基址。已登录的业务请求使用 `Authorization: Bearer <accessToken>`。
+
+扫码时，CLI 还会打开 VELA 登录页并读取企业微信二维码。登录页和企业微信二维码地址属于浏览器登录依赖，表中只列 VELA 后端接口。
+
+### 认证与会话
+
+实现见[认证请求](src/vela.ts)和[扫码登录](src/browser-login.ts)。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `POST` | `/system/auth/wecom/login` | `login` 打开登录页并等待浏览器完成企业微信扫码，从该请求的响应读取 VELA 会话。 |
+| `GET` | `/system/auth/get-permission-info` | 登录后及 `auth status` 核验账号。任务关联、缺陷和日报命令也用它获取当前用户。 |
+| `POST` | `/system/auth/refresh-token` | 访问令牌过期时，通过 `refreshToken` 查询参数换取新会话。 |
+| `POST` | `/system/auth/logout` | `logout` 注销服务端会话。 |
+
+### 开发任务
+
+实现见[任务命令](src/task.ts)。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/pmp/dev-task/get` | 按 `id` 查询开发任务详情。 |
+| `GET` | `/pmp/dev-task-app/list` | 按 `devTaskId` 查询已有应用关联，用于详情、预览和提交后回查。 |
+| `GET` | `/pmp/dev-task-member/list` | 按 `devTaskId` 查询开发成员。 |
+| `GET` | `/pmp/task/list` | 用 `businessType=pmp_dev_task` 和 `businessId` 查询开发计划。 |
+| `GET` | `/pmp/application/app/page` | `task app add --app` 按 `appName` 分页查找应用。 |
+| `GET` | `/pmp/application/app/get` | `task app add --app-id` 按 `id` 查找应用。 |
+| `POST` | `/pmp/dev-task-app/create` | `task app add --apply` 创建任务和应用的关联。 |
+
+### 缺陷
+
+实现见[缺陷命令](src/defect.ts)。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/pmp/defect/page` | `defect list` 分页查询当前用户处理的缺陷，支持按状态筛选。 |
+| `GET` | `/pmp/defect/get` | 按 `id` 查询缺陷详情。评论和流转命令也用它核对缺陷。 |
+| `GET` | `/pmp/defect/status-list` | 获取状态编号与名称，用于筛选、展示和解析流转目标。 |
+| `GET` | `/pmp/defect/action-list` | 按 `id` 查询可用流转动作、候选处理人和必填字段。 |
+| `GET` | `/system/user/simple-list` | 指定 `--to` 时查询并核对目标处理人。 |
+| `GET` | `/fsm/transition-log/page` | 按 `bizType=pmp_defect` 和 `bizId` 分页读取流转历史，并用于流转预览和回查。 |
+| `PUT` | `/pmp/defect/change-status` | `defect transition --apply` 提交流转状态、处理人和可选备注。 |
+| `GET` | `/pmp/comment/list` | 按 `bizType=pmp_defect` 和 `bizId` 查询缺陷评论，用于列表、更新预览和回查。 |
+| `PUT` | `/pmp/comment/update` | `defect update --comment … --apply` 按评论 `id` 更新正文。 |
+
+### 任务与缺陷共用
+
+实现见[任务命令](src/task.ts)和[缺陷命令](src/defect.ts)。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/pmp/attachment/list` | 按 `bizType` 和 `bizId` 查询附件清单。 |
+| `GET` | `/pmp/change-log/page` | 按 `bizType` 和 `bizId` 分页查询变更历史。 |
+
+### 工作日报
+
+实现见[日报命令](src/hours.ts)。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `GET` | `/pmp/daily-report/reportable-project-list` | 查询可填报项目。预览新增日报项目时也会查询。 |
+| `GET` | `/pmp/daily-report/my-card-list` | 按 `date` 查询本人指定日期的日报卡片，用于 `hours day`、预览和回查。 |
+| `POST` | `/pmp/daily-report/submit` | `hours submit --apply` 提交指定日期的日报条目。 |
 
 ## AI 调用
 

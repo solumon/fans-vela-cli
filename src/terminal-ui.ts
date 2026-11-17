@@ -53,6 +53,7 @@ export function formatHelp(interactive: boolean) {
     entry('vela defect list', '查询当前由我处理的缺陷'),
     entry('vela defect get <缺陷编号>', '查看缺陷详情'),
     entry('vela defect transition <缺陷编号>', '预览流转，运行 vela defect 查看用法'),
+    entry('vela defect comments <缺陷编号>', '查询缺陷评论'),
     '',
     section('工作日报'),
     entry('vela hours day [--date YYYY-MM-DD]', '查看日报'),
@@ -105,6 +106,10 @@ export function formatDefectHelp() {
     '  vela defect transition <缺陷编号> [--status <目标状态>] [--to <用户ID>]',
     '    [--message <备注>] [--apply <previewId>] [--json]',
     '    省略 --status 时只转交。先预览，确认后在原命令末尾加 --apply <previewId>。',
+    '  vela defect comments <缺陷编号> [--json]',
+    '    查询缺陷评论及评论 ID。',
+    '  vela defect update <缺陷编号> --comment <评论ID> --message <正文> [--apply <previewId>] [--json]',
+    '    预览替换本人评论正文，确认后加 --apply <previewId> 提交并回查。',
   ].join('\n')
 }
 
@@ -146,6 +151,25 @@ export function formatDefect(result: DefectResult, columns: number | undefined) 
         `#${id} ${title}\n${severity} · ${status} · ${handler}\n${date}`,
       ]), [width - 4])
     return header + '\n' + table
+  }
+  if ('comments' in result) {
+    const header = `缺陷 #${result.defectId} · 评论 ${result.comments.length} 条`
+    if (!result.comments.length) return header
+    const rows = result.comments.map((comment: Record<string, unknown>) => [
+      `#${defectText(comment.id)} · ${defectText(comment.creatorNickname ?? comment.creator)} · ${formatDefectDate(comment.createTime)}\n${defectDescription(comment.content)}`,
+    ])
+    return header + '\n' + formatTaskTable(['评论'], rows, [width - 4])
+  }
+  if ('commentUpdate' in result) {
+    const update = result.commentUpdate
+    const table = formatTaskFields([
+      ['缺陷', `#${update.defectId} ${defectText(update.defectTitle)}`],
+      ['评论', `#${update.commentId} · ${defectText(update.author)}`],
+      ['原正文', defectDescription(update.before)],
+      ['新正文', defectDescription(update.after)],
+    ], width, '评论更新')
+    if (result.submitted) return '✓ 评论已更新并回查确认\n' + table
+    return ['评论更新预览 · 尚未提交', table, '确认后，在原命令末尾加', `  --apply ${result.previewId}`].join('\n')
   }
   if ('transition' in result) {
     const { id, title, eventName, before, after, message } = result.transition
