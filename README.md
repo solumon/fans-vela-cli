@@ -1,6 +1,6 @@
 # VELA CLI
 
-<img src="assets/vela-logo.png" alt="VELA 标志" width="320">
+<img src="assets/vela-logo.png" alt="VELA 标志" width="640">
 
 ## 让 AI 帮你安装
 
