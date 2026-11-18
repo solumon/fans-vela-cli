@@ -1,5 +1,7 @@
 # VELA CLI
 
+<img src="assets/vela-logo.png" alt="VELA 标志" width="320">
+
 ## 让 AI 帮你安装
 
 把下面这段提示词复制给 Codex、Cursor、OpenCode、Hermes 或 WorkBuddy。
