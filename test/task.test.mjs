@@ -8,21 +8,18 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import stringWidth from 'string-width'
+import { isWindows, sessionFixture } from './session-fixture.mjs'
 
 const cli = fileURLToPath(new URL('../dist/cli.mjs', import.meta.url))
-const preload = fileURLToPath(new URL('./task-api.mjs', import.meta.url))
+const preload = new URL('./task-api.mjs', import.meta.url).href
 
 function setup(t, accessToken) {
   const dir = mkdtempSync(join(tmpdir(), 'vela-task-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const sessionDir = join(dir, '.vela')
-  const session = join(sessionDir, 'auth.json')
+  const session = sessionFixture(dir)
   const state = join(dir, 'task-app.json')
-  mkdirSync(sessionDir, { mode: 0o700 })
   writeFileSync(state, 'null')
-  if (accessToken) {
-    writeFileSync(session, JSON.stringify({ accessToken, refreshToken: 'refresh' }), { mode: 0o600 })
-  }
+  if (accessToken) session.write({ accessToken, refreshToken: 'refresh' })
   const run = (args, mode = '') => spawnSync(process.execPath, ['--import', preload, cli, 'task', ...args], {
     env: { ...process.env, XDG_STATE_HOME: dir, VELA_TEST_MODE: mode, VELA_TEST_STATE: state },
     encoding: 'utf8',
@@ -44,12 +41,12 @@ test('reads all task history pages and saves the refreshed session', t => {
   assert.deepEqual(data.plan, [])
   assert.deepEqual(data.attachments, [])
   assert.deepEqual(data.history.map(item => item.id), Array.from({ length: 21 }, (_, index) => index + 1))
-  assert.deepEqual(JSON.parse(readFileSync(session, 'utf8')), { accessToken: 'active', refreshToken: 'new-refresh' })
+  assert.deepEqual(session.read(), { accessToken: 'active', refreshToken: 'new-refresh' })
 })
 
 for (const useXdg of [false, true]) {
   const location = useXdg ? '$XDG_STATE_HOME' : '~'
-  test(`migrates and refreshes the old session in ${location}/.vela/auth.json`, t => {
+  test(`migrates and refreshes the old session in ${location}/.vela/auth.json`, { skip: isWindows }, t => {
     const home = mkdtempSync(join(tmpdir(), 'vela-auth-'))
     t.after(() => rm(home, { recursive: true, force: true }))
     const xdg = useXdg ? join(home, 'xdg') : ''

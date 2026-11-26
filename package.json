@@ -1,6 +1,6 @@
 {
   "name": "vela-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "VELA 项目管理 CLI",
   "type": "module",
@@ -19,10 +19,10 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
     "prepack": "npm run build",
-    "install:skill": "sh scripts/install-skill.sh",
-    "pack:release": "sh scripts/pack-release.sh"
+    "install:skill": "node scripts/install-skill.mjs",
+    "pack:release": "node scripts/pack-release.mjs"
   },
   "dependencies": {
     "cli-table3": "^0.6.5",

@@ -4,10 +4,13 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import lockfile from 'proper-lockfile'
 import { asObject, CliError, parseSession, type Session } from './vela.js'
+import { protectWindowsData } from './windows-dpapi.js'
 
+const isWindows = process.platform === 'win32'
 const xdgStateHome = process.env.XDG_STATE_HOME
-const stateDir = join(xdgStateHome || homedir(), '.vela')
-const sessionPath = join(stateDir, 'auth.json')
+const stateHome = isWindows ? process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local') : homedir()
+const stateDir = join(xdgStateHome || stateHome, '.vela')
+const sessionPath = join(stateDir, isWindows ? 'auth.dpapi' : 'auth.json')
 const legacyDir = join(xdgStateHome || join(homedir(), '.local', 'state'), 'vela-cli')
 const legacyPath = join(legacyDir, 'session.json')
 
@@ -20,6 +23,7 @@ async function statIfExists(path: string) {
 }
 
 async function hasLegacySession() {
+  if (isWindows) return false
   const legacyDirInfo = await statIfExists(legacyDir)
   if (!legacyDirInfo?.isDirectory() || (legacyDirInfo.mode & 0o077) !== 0) return false
 
@@ -36,7 +40,7 @@ async function migrateLegacySession() {
 export async function withSessionLock<T>(action: () => Promise<T>): Promise<T> {
   await mkdir(stateDir, { mode: 0o700, recursive: true })
   const info = await lstat(stateDir)
-  if (!info.isDirectory() || (info.mode & 0o077) !== 0) {
+  if (!info.isDirectory() || (!isWindows && (info.mode & 0o077) !== 0)) {
     throw new CliError('LOCAL_STATE_ERROR', 'VELA CLI 的会话目录必须是仅当前用户可访问的本地目录。')
   }
   const release = await lockfile.lock(stateDir, {
@@ -65,10 +69,12 @@ export async function withSessionLock<T>(action: () => Promise<T>): Promise<T> {
 export async function loadSession(): Promise<Session> {
   try {
     const info = await lstat(sessionPath)
-    if (!info.isFile() || (info.mode & 0o077) !== 0) {
+    if (!info.isFile() || (!isWindows && (info.mode & 0o077) !== 0)) {
       throw new CliError('LOCAL_STATE_ERROR', 'VELA CLI 的会话文件权限异常，请重新运行 vela login。')
     }
-    const raw: unknown = JSON.parse(await readFile(sessionPath, 'utf8'))
+    const contents = await readFile(sessionPath)
+    const json = isWindows ? protectWindowsData('Unprotect', contents) : contents
+    const raw: unknown = JSON.parse(json.toString('utf8'))
     const session = parseSession(raw)
     if (session) return session
   } catch (error) {
@@ -91,9 +97,17 @@ export async function clearSession() {
 }
 
 export async function saveSession(session: Session) {
+  let contents: Buffer = Buffer.from(JSON.stringify(session))
+  if (isWindows) {
+    try {
+      contents = protectWindowsData('Protect', contents)
+    } catch {
+      throw new CliError('LOCAL_STATE_ERROR', 'Windows 无法加密 VELA 会话，请检查系统自带的 Windows PowerShell 是否可用。')
+    }
+  }
   const temp = join(stateDir, 'session-' + randomUUID() + '.tmp')
   try {
-    await writeFile(temp, JSON.stringify(session), { mode: 0o600, flag: 'wx' })
+    await writeFile(temp, contents, { mode: 0o600, flag: 'wx' })
     await rename(temp, sessionPath)
   } finally {
     await rm(temp, { force: true })

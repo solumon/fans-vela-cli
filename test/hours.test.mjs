@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,10 +8,11 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import stringWidth from 'string-width'
+import { sessionFixture } from './session-fixture.mjs'
 
 const date = '2024-09-02'
 const cli = fileURLToPath(new URL('../dist/cli.mjs', import.meta.url))
-const preload = fileURLToPath(new URL('./hours-api.mjs', import.meta.url))
+const preload = new URL('./hours-api.mjs', import.meta.url).href
 const existing = [
   { projectId: 10, projectName: '修改项目', filled: true, manualWorkHours: 2, todoWorkHours: 1.5, workHours: 3.5, progress: 40, content: '保留内容' },
   { projectId: 20, projectName: '保留项目', filled: true, workHours: 2, progress: 60, content: '原有内容' },
@@ -26,11 +27,9 @@ function setup(t) {
   const dir = mkdtempSync(join(tmpdir(), 'vela-hours-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const state = join(dir, 'cards.json')
-  const sessionDir = join(dir, '.vela')
-  const session = join(sessionDir, 'auth.json')
-  mkdirSync(sessionDir, { mode: 0o700 })
+  const session = sessionFixture(dir)
   const setCards = cards => writeFileSync(state, JSON.stringify(cards))
-  const setToken = accessToken => writeFileSync(session, JSON.stringify({ accessToken, refreshToken: 'old-refresh' }), { mode: 0o600 })
+  const setToken = accessToken => session.write({ accessToken, refreshToken: 'old-refresh' })
   setCards(existing)
   setToken('active')
   function runRaw(args, { input, mode, columns } = {}) {
@@ -187,7 +186,7 @@ test('refreshes an expired session for read operations and saves the rotated tok
   const { run, setToken, session } = setup(t)
   setToken('expired')
   assert.equal(run(['day', '--date', date])[0], 0)
-  assert.equal(JSON.parse(readFileSync(session, 'utf8')).refreshToken, 'new-refresh')
+  assert.equal(session.read().refreshToken, 'new-refresh')
 })
 
 for (const mode of ['lost-before-write', 'lost-after-write']) {

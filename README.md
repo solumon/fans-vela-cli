@@ -9,10 +9,10 @@
 ```text
 请在我实际运行 AI 工具的环境中安装 VELA CLI，并按仓库 README 配置我需要的技能。
 
-仓库是 https://github.com/solumon/fans-vela-cli ，需要 GitHub 读取权限。使用我现有的 GitHub 登录。如果无法访问，请告诉我需要开通仓库权限。
+仓库是 https://github.com/solumon/fans-vela-cli 。如果无法访问，请告诉我具体的错误。
 
 1. 将仓库克隆到一个长期保留的目录。如果已有该仓库，先确认远端地址，再复用它。
-2. 在项目目录使用 Node.js 26，执行 npm ci、npm run build 和 npm link。检查当前环境能运行 vela --help。如果本机缺少 Google Chrome，请告诉我。
+2. 在项目目录使用 Node.js 26，执行 npm ci、npm run build 和 npm link。Windows PowerShell 中使用 npm.cmd 和 vela.cmd。检查当前环境能运行 vela --help。如果本机缺少 Google Chrome，请告诉我。
 3. 安装工时技能时，Codex、Cursor、OpenCode 或 Hermes 使用 npm run install:skill。WorkBuddy 使用 npm run pack:release 生成技能 ZIP，告诉我 ZIP 的完整路径，供我在「上传技能」中导入。
 4. 如果我需要缺陷技能，在本仓库中使用 .agents/skills/fans-vela-defect。若要在其他工作区使用，复制整个目录到当前工具支持的技能目录，保留 references/。
 5. 核对 vela 命令和所需技能是否就绪，汇报安装位置。提示我在自己的终端运行 vela login 并用企业微信扫码，再运行 vela auth status 核对登录结果。
@@ -48,7 +48,11 @@
 
 ## 安装与构建
 
-需要 Node.js 26、Google Chrome 和可登录 VELA 的企业微信账号。在项目目录执行以下命令。
+需要 Node.js 26、Google Chrome 和可登录 VELA 的企业微信账号。
+
+### macOS 和 Linux
+
+在项目目录执行以下命令。
 
 ```bash
 npm ci
@@ -59,20 +63,35 @@ vela login
 vela auth status
 ```
 
+### Windows PowerShell
+
+在项目目录执行以下命令。使用 `.cmd` 启动 npm 和 VELA，可以兼容限制运行 `.ps1` 脚本的 PowerShell 执行策略。
+
+```powershell
+npm.cmd ci
+npm.cmd run build
+npm.cmd link
+vela.cmd --help
+vela.cmd login --browser
+vela.cmd auth status
+```
+
+也可以从 [GitHub Releases](https://github.com/solumon/fans-vela-cli/releases/latest) 下载 CLI 安装包。在下载目录执行 `npm.cmd install -g .\vela-cli-0.2.0.tgz`，然后执行上面的 `vela.cmd` 命令。
+
 用企业微信扫描 `vela login` 显示的二维码并确认。登录后可用 `vela hours day` 查询当天工时，或用 `vela defect list` 查询当前处理人为自己的缺陷。
 
 开发时可用 `npm run typecheck` 检查类型，`npm test` 构建并运行测试。
 
 ## 打包与分发
 
-使用 Node.js 26，安装项目依赖后运行以下命令。打包需要 POSIX shell 和 `zip`，默认输出到 `release/`。可用 `npm run pack:release -- /path/to/output` 指定目录。
+使用 Node.js 26，安装项目依赖后运行以下命令。Windows 使用系统自带的 `tar.exe`，macOS 和 Linux 使用 `zip`。默认输出到 `release/`，也可在 `npm run pack:release --` 后指定输出目录。PowerShell 中使用 `npm.cmd`。
 
 ```bash
 npm ci
 npm run pack:release
 ```
 
-- `vela-cli-<版本>.tgz` 是 CLI 安装包。接收者使用 Node.js 26 安装，例如 `npm install -g ./vela-cli-0.1.0.tgz`，然后执行 `vela --help` 和 `vela login`。
+- `vela-cli-<版本>.tgz` 是 CLI 安装包。接收者使用 Node.js 26 安装，例如 `npm install -g ./vela-cli-0.2.0.tgz`，然后执行 `vela --help` 和 `vela login`。
 - `fans-vela-daily-register-<版本>.zip` 是技能包。Codex、Cursor 和 OpenCode 可从本项目的 `.agents/skills/` 发现技能，也可将 ZIP 内的技能目录解压到目标项目的 `.agents/skills/`。WorkBuddy 可通过「上传技能」导入 ZIP。
 
 ## AI 技能
@@ -92,13 +111,15 @@ npm run pack:release
 npm run install:skill
 ```
 
-脚本把工时技能复制到 `~/.agents/skills/fans-vela-daily-register`。OpenCode 可直接读取该目录。有对应应用目录时，脚本也会创建以下软链接。
+PowerShell 中执行 `npm.cmd run install:skill`。
+
+脚本把工时技能复制到 `~/.agents/skills/fans-vela-daily-register`。OpenCode 可直接读取该目录。有对应应用目录时，脚本也会在以下路径安装技能。Windows 使用目录副本，macOS 和 Linux 使用软链接。
 
 - `~/.cursor/skills/fans-vela-daily-register`
 - `~/.codex/skills/fans-vela-daily-register`
 - `~/.hermes/skills/fans-vela-daily-register`
 
-通用目录中已有不同版本的 `SKILL.md` 时，脚本会先把目标目录备份为 `fans-vela-daily-register.bak-<时间戳>`。WorkBuddy 可通过「上传技能」导入[打包生成的 ZIP](#打包与分发)。
+目标路径有不同版本的技能或需要替换的链接时，脚本先将其备份为 `fans-vela-daily-register.bak-<时间戳>`。WorkBuddy 可通过「上传技能」导入[打包生成的 ZIP](#打包与分发)。
 
 ### 使用缺陷技能
 
@@ -118,7 +139,10 @@ vela logout
 
 `vela login` 在终端显示 VELA 的企业微信登录二维码。用企业微信扫码并确认后，CLI 向 VELA 核验当前账号，再保存本地会话。默认等待 180 秒，可用 `--timeout` 指定 10 至 900 秒，例如 `vela login --timeout 300`。如需在 Chrome 窗口中显示二维码，运行 `vela login --browser`。
 
-`auth status` 无需打开浏览器。它向 VELA 核验会话，访问令牌过期时尝试刷新。CLI 会话默认位于 `~/.vela/auth.json`。如果设置了非空的 `XDG_STATE_HOME`，则使用 `$XDG_STATE_HOME/.vela/auth.json`。如果新文件不存在，CLI 会自动迁移对应的旧会话文件 `~/.local/state/vela-cli/session.json` 或 `$XDG_STATE_HOME/vela-cli/session.json`。会话文件和目录的权限分别为 `0600` 和 `0700`。
+`auth status` 无需打开浏览器。它向 VELA 核验会话，访问令牌过期时尝试刷新。
+
+- Windows 会话默认保存在 `%LOCALAPPDATA%\.vela\auth.dpapi`，使用系统自带的 Windows PowerShell 和 DPAPI 加密，由登录时的 Windows 用户读取。设置 `XDG_STATE_HOME` 后，会话保存在该目录下的 `.vela\auth.dpapi`。
+- macOS 和 Linux 会话默认保存在 `~/.vela/auth.json`，设置 `XDG_STATE_HOME` 后使用 `$XDG_STATE_HOME/.vela/auth.json`。如果新文件不存在，CLI 会自动迁移旧会话 `~/.local/state/vela-cli/session.json` 或 `$XDG_STATE_HOME/vela-cli/session.json`。会话文件和目录的权限分别为 `0600` 和 `0700`。
 
 `vela logout` 调用 VELA 的退出接口，服务端确认后清除本地会话。如果已经退出，重复执行也会成功。退出请求失败时，CLI 会保留本地会话，便于重试。
 
@@ -127,7 +151,7 @@ vela logout
 添加任务应用、更新应用内容、流转缺陷、更新评论和填报工时都使用同一套流程。
 
 1. 先执行预览命令，核对目标和改动。使用 `--json` 可从结果中读取 `previewId`。
-2. 确认有需要提交的改动后，将这次预览返回的 `previewId` 赋给示例中的 shell 变量 `preview_id`，用相同参数加上 `--apply "$preview_id"` 提交。
+2. 确认有需要提交的改动后，将这次预览返回的 `previewId` 赋给示例中的变量 `preview_id`。PowerShell 中使用 `$preview_id = '预览返回的值'`。用相同参数加上 `--apply "$preview_id"` 提交。
 3. JSON 结果中的 `submitted: true` 表示 CLI 已回查确认。遇到 `PREVIEW_STALE` 时重新预览。遇到 `SUBMIT_UNCERTAIN` 时先查询实际结果，再决定是否重试。
 
 ## 开发任务

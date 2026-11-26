@@ -2,7 +2,7 @@
 
 CLI 缺少缺陷字段编辑能力时使用本页。在用户已授权提交该流转的情况下，这一步用于保存流转所需字段。预览请求只读取字段和字典。
 
-API 基址为 `https://vela-api.up366demo.cn/admin-api`。优先复用 VELA CLI 的 `session.ts`（`withSessionLock`、`loadSession`）和 `vela.ts`（`identityFor`、`requestWithSession`）。当前 CLI 会话路径为 `${XDG_STATE_HOME}/.vela/auth.json`（设置该环境变量时）或 `~/.vela/auth.json`。使用本机会话中的访问令牌访问同一 VELA API，避免把令牌放进命令参数、日志或回复。临时文件如需保存缺陷原始详情，应限制权限并及时清理。
+API 基址为 `https://vela-api.up366demo.cn/admin-api`。优先复用 VELA CLI 的 `session.ts`（`withSessionLock`、`loadSession`）和 `vela.ts`（`identityFor`、`requestWithSession`）。Windows 会话默认保存在 `%LOCALAPPDATA%\.vela\auth.dpapi`，用同一 Windows 用户通过 `loadSession` 读取。macOS 和 Linux 会话默认保存在 `~/.vela/auth.json`。设置 `XDG_STATE_HOME` 时，会话保存在该目录下的 `.vela` 子目录。使用本机会话中的访问令牌访问同一 VELA API，避免把令牌放进命令参数、日志或回复。临时文件如需保存缺陷原始详情，应限制权限并及时清理。
 
 | 请求 | 用途 |
 | --- | --- |

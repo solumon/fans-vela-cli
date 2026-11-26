@@ -1,22 +1,21 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { sessionFixture } from './session-fixture.mjs'
 
 const cli = fileURLToPath(new URL('../dist/cli.mjs', import.meta.url))
-const preload = fileURLToPath(new URL('./defect-api.mjs', import.meta.url))
+const preload = new URL('./defect-api.mjs', import.meta.url).href
 
 function setup(t) {
   const dir = mkdtempSync(join(tmpdir(), 'vela-defect-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const sessionDir = join(dir, '.vela')
   const state = join(dir, 'defect.json')
-  mkdirSync(sessionDir, { mode: 0o700 })
-  writeFileSync(join(sessionDir, 'auth.json'), '{"accessToken":"active","refreshToken":"refresh"}', { mode: 0o600 })
+  sessionFixture(dir).write({ accessToken: 'active', refreshToken: 'refresh' })
   writeFileSync(state, '{}')
   const run = (args, mode = '') => spawnSync(process.execPath, ['--import', preload, cli, 'defect', ...args], {
     env: { ...process.env, XDG_STATE_HOME: dir, VELA_TEST_MODE: mode, VELA_TEST_STATE: state },
