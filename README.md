@@ -83,6 +83,7 @@ npm run pack:release
 | --- | --- |
 | [fans-vela-daily-register](.agents/skills/fans-vela-daily-register/SKILL.md) | 查询和登记本人工作日报 |
 | [fans-vela-defect](.agents/skills/fans-vela-defect/SKILL.md) | 查询及排查缺陷、流转状态和修改已发布的评论 |
+| [fans-vela-task-app-link](.agents/skills/fans-vela-task-app-link/SKILL.md) | 查询 VELA 任务的应用关联并预览、添加应用 |
 | [fans-vela-task-update](.agents/skills/fans-vela-task-update/SKILL.md) | 根据 Git 迭代差异起草、预览和写回任务关联应用的更新内容 |
 
 ### 安装工时技能
@@ -105,7 +106,7 @@ npm run install:skill
 
 ### 使用应用更新内容技能
 
-在支持仓库技能的 AI 工具中粘贴 VELA 开发任务详情链接，或显式调用 `$fans-vela-task-update`。要限定范围，可以加上「只处理 `report1-html`」。技能需要访问相关 Git 仓库，确认预览后才会写回 VELA。
+在支持仓库技能的 AI 工具中粘贴 VELA 开发任务详情链接，或显式调用 `$fans-vela-task-update`。要限定范围，可以加上「只处理 `report1-html`」。技能需要访问相关 Git 仓库，确认预览后才会写回 VELA。目标应用尚未关联时，由 `$fans-vela-task-app-link` 查询并预览加入，也可单独调用它来查找或添加应用。跨工作区安装更新内容技能时，将两个技能目录放在同一个技能根目录下。
 
 ## 登录、检查与退出
 
