@@ -28,12 +28,13 @@
 | 补登或修改工时 | VELA 工时、补登工时、改进度 | 预览补登昨天的 VELA 工时。音频项目 3.5 小时，进度 60%，工作内容是完成播放联调。 |
 | 查开发任务 | VELA 开发任务、任务编号、关联应用、变更历史 | 查看 VELA 开发任务 #26 的关联应用、开发计划和变更历史。 |
 | 给任务关联应用 | 添加关联应用、提测分支、应用版本 | 预览给 VELA 开发任务 #26 关联 `example-api`，提测分支是 `dev`，版本是 `2.4.9`。 |
+| 填写应用更新内容 | 应用更新内容、影响模块、测试要点 | 预览给 VELA 开发任务 #26 的 `example-api` 填写更新内容和测试要点。 |
 | 查自己正在处理的缺陷 | VELA 缺陷、PMS 缺陷列表、当前处理人 | 列出当前由我处理、状态为「新建」的 VELA 缺陷。 |
 | 看缺陷详情并排查代码 | 缺陷详情链接、看一下、查一下 | 粘贴 VELA 缺陷详情链接，再说「看一下这个缺陷，帮我定位相关代码」。 |
 | 转交或流转缺陷 | 转交缺陷、流转缺陷、已解决 | 预览把 VELA 缺陷 #73 流转为「已解决」，处理人设为用户 ID 123。 |
 | 修改自己发过的流转留言 | 缺陷评论、修改流转留言、评论 ID | 查一下 VELA 缺陷 #73 的评论，预览把我发的「请复测」改成「请用最新测试包复测」。 |
 
-填报工时、关联应用、流转缺陷和修改评论时，可以先让 AI [预览改动](#预览与提交)，核对后再确认提交。
+填报工时、关联应用、更新应用内容、流转缺陷和修改评论时，可以先让 AI [预览改动](#预览与提交)，核对后再确认提交。
 
 ## 功能概览
 
@@ -42,7 +43,7 @@
 | 功能 | 支持的操作 |
 | --- | --- |
 | [工作日报](#工作日报) | 查询本人单日工时和可填报项目，补登或修改工时、进度与工作内容 |
-| [开发任务](#开发任务) | 按编号查询任务、关联应用、开发计划和变更历史，添加应用关联 |
+| [开发任务](#开发任务) | 按编号查询任务、关联应用、开发计划和变更历史，添加应用关联，填写或修改应用更新内容 |
 | [缺陷](#缺陷) | 查询当前由本人处理的缺陷和指定缺陷详情，转交、流转状态及修改本人评论 |
 
 ## 安装与构建
@@ -76,12 +77,13 @@ npm run pack:release
 
 ## AI 技能
 
-仓库在 `.agents/skills/` 下提供两个技能。运行技能的环境需要能调用 `vela` 并访问 VELA，每位使用者用自己的账号扫码登录。
+仓库在 `.agents/skills/` 下提供以下技能。运行技能的环境需要能调用 `vela` 并访问 VELA，每位使用者用自己的账号扫码登录。
 
 | 技能 | 用途 |
 | --- | --- |
 | [fans-vela-daily-register](.agents/skills/fans-vela-daily-register/SKILL.md) | 查询和登记本人工作日报 |
 | [fans-vela-defect](.agents/skills/fans-vela-defect/SKILL.md) | 查询及排查缺陷、流转状态和修改已发布的评论 |
+| [fans-vela-task-update](.agents/skills/fans-vela-task-update/SKILL.md) | 根据 Git 迭代差异起草、预览和写回任务关联应用的更新内容 |
 
 ### 安装工时技能
 
@@ -101,6 +103,10 @@ npm run install:skill
 
 在能读取仓库技能的 AI 工具中，从本仓库调用 `$fans-vela-defect`。跨工作区使用时，将 `.agents/skills/fans-vela-defect/` 整个目录复制到工具支持的技能目录，保留其中的 `references/`。`npm run install:skill` 和发布 ZIP 目前仅支持工时技能。
 
+### 使用应用更新内容技能
+
+在支持仓库技能的 AI 工具中粘贴 VELA 开发任务详情链接，或显式调用 `$fans-vela-task-update`。要限定范围，可以加上「只处理 `report1-html`」。技能需要访问相关 Git 仓库，确认预览后才会写回 VELA。
+
 ## 登录、检查与退出
 
 ```bash
@@ -117,7 +123,7 @@ vela logout
 
 ## 预览与提交
 
-添加任务应用、流转缺陷、更新评论和填报工时都使用同一套流程。
+添加任务应用、更新应用内容、流转缺陷、更新评论和填报工时都使用同一套流程。
 
 1. 先执行预览命令，核对目标和改动。使用 `--json` 可从结果中读取 `previewId`。
 2. 确认有需要提交的改动后，将这次预览返回的 `previewId` 赋给示例中的 shell 变量 `preview_id`，用相同参数加上 `--apply "$preview_id"` 提交。
@@ -131,7 +137,7 @@ vela task get 26
 vela task get 26 --json
 ```
 
-`get` 按开发任务编号只读查询。终端分别用表格显示任务信息和关联应用。`--json`、管道或重定向输出单行 JSON，其中 `task` 为任务详情，`applications` 为关联应用，`members` 为开发成员，`plan` 为开发计划，`attachments` 为附件清单，`history` 为自动翻页获取的变更记录。
+`get` 按开发任务编号只读查询。终端用表格显示任务信息、关联应用和已填写的更新内容。`--json`、管道或重定向输出单行 JSON，其中 `task` 为任务详情，`applications` 为关联应用，`members` 为开发成员，`plan` 为开发计划，`attachments` 为附件清单，`history` 为自动翻页获取的变更记录。
 
 ### 关联应用
 
@@ -141,6 +147,16 @@ vela task app add 26 --app example-api --branch dev --apply "$preview_id" --json
 ```
 
 `--app` 按应用名称精确匹配。遇到同名应用，或已知应用 ID，可改用 `--app-id`。提测分支默认是 `dev`，可用 `--version` 指定三段数字版本号，例如 `2.4.9`。一个应用在同一任务中只关联一次。提交结果不明确时，用 `vela task get 26` 核对关联应用。
+
+### 更新应用内容
+
+```bash
+content=$'影响模块：报告页\n测试要点：验证报告页加载'
+vela task app update 26 --app example-api --content "$content" --json
+vela task app update 26 --app example-api --content "$content" --apply "$preview_id" --json
+```
+
+`update` 在任务的关联应用中按名称精确查找，也支持 `--app-id <应用ID>`。`--content` 接收完整的纯文本正文，支持换行。传入 `--content ''` 可预览清空已有正文。提交前 CLI 会重新读取旧内容，保存后回查对应关联记录。可以用 `vela task get 26 --json` 查看 `applications` 中的 `updateContent`。
 
 ## 缺陷
 
@@ -230,6 +246,7 @@ vela hours submit --date 2026-11-06 --file entries.json --apply "$preview_id" --
 | `GET` | `/pmp/application/app/page` | `task app add --app` 按 `appName` 分页查找应用。 |
 | `GET` | `/pmp/application/app/get` | `task app add --app-id` 按 `id` 查找应用。 |
 | `POST` | `/pmp/dev-task-app/create` | `task app add --apply` 创建任务和应用的关联。 |
+| `PUT` | `/pmp/dev-task-app/update` | `task app update --apply` 在最新的关联记录中替换 `updateContent`。 |
 
 ### 缺陷
 

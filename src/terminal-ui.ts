@@ -4,7 +4,7 @@ import ora from 'ora'
 import stringWidth from 'string-width'
 import type { DefectResult } from './defect.js'
 import type { DayReport, Project, hoursCommand } from './hours.js'
-import type { TaskAppResult, TaskDetails } from './task.js'
+import type { TaskAppResult, TaskAppUpdateResult, TaskDetails } from './task.js'
 import type { CliError } from './vela.js'
 
 export class TerminalUi {
@@ -48,6 +48,7 @@ export function formatHelp(interactive: boolean) {
     section('开发任务'),
     entry('vela task get <任务编号>', '查看开发任务详情'),
     entry('vela task app add <任务编号> --app <应用名>', '预览添加应用'),
+    entry('vela task app update <任务编号>', '预览修改应用更新内容，运行 vela task 查看用法'),
     '',
     section('缺陷'),
     entry('vela defect list', '查询当前由我处理的缺陷'),
@@ -92,6 +93,9 @@ export function formatTaskHelp() {
     '  vela task app add <任务编号> (--app <应用名> | --app-id <应用ID>)',
     '    [--branch <分支>] [--version <版本>] [--apply <previewId>] [--json]',
     '    分支默认 dev。先预览，确认后在原命令末尾加 --apply <previewId>。',
+    '  vela task app update <任务编号> (--app <应用名> | --app-id <应用ID>)',
+    '    --content <正文> [--apply <previewId>] [--json]',
+    '    预览填写或替换更新内容，支持多行。确认后加 --apply <previewId> 提交并回查。',
   ].join('\n')
 }
 
@@ -245,6 +249,25 @@ export function formatTaskApp(result: TaskAppResult, columns: number | undefined
   return [title, table, '确认后，在原命令末尾加', `  --apply ${result.previewId}`].join('\n')
 }
 
+function taskAppContent(value: string) {
+  return value.split(/\r\n|[\r\n]/).map(terminalText).join('\n') || '—'
+}
+
+export function formatTaskAppUpdate(result: TaskAppUpdateResult, columns: number | undefined) {
+  const { devTaskId, taskName, appId, appName, before, after } = result.appUpdate
+  const fields = [
+    ['任务', `#${devTaskId}  ${terminalText(taskName)}`],
+    ['应用', `#${appId}  ${terminalText(appName)}`],
+    ['原内容', taskAppContent(before)],
+    ['新内容', taskAppContent(after)],
+  ]
+  const width = Math.min(Math.max(columns || 80, 12), 100)
+  const table = formatTaskFields(fields, width, '应用更新内容')
+  if (result.submitted) return styleText(['bold', 'greenBright'], '✓ 已保存更新内容并回查确认') + '\n' + table
+  const title = styleText(['bold', 'yellowBright'], '应用更新内容预览 · 尚未提交')
+  return [title, table, '确认后，在原命令末尾加', `  --apply ${result.previewId}`].join('\n')
+}
+
 export function formatTask(
   { task, applications, members, plan, attachments, history }: TaskDetails,
   columns: number | undefined,
@@ -287,13 +310,18 @@ export function formatTask(
       `${name}\n提测分支 ${branch}\n版本号 ${version}`,
     ]), [width - 4])
 
-  return [
+  const sections = [
     styleText(['bold', 'cyanBright'], '开发任务'),
     details,
     '',
     styleText(['bold', 'cyanBright'], `关联应用（${applications.length}）`),
     applications.length ? appTable : '暂无关联应用。',
-  ].join('\n')
+  ]
+  const updates = applications.flatMap(app => typeof app.updateContent === 'string' && app.updateContent.trim()
+    ? [[`${text(app.appName)}\n${taskAppContent(app.updateContent)}`]]
+    : [])
+  if (updates.length) sections.push('', formatTaskTable(['应用更新内容'], updates, [width - 4]))
+  return sections.join('\n')
 }
 
 function formatTaskFields(fields: string[][], width: number, compactHeading = '任务信息') {

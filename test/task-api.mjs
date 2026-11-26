@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 
 const reply = data => Response.json({ code: 0, data })
 const mode = process.env.VELA_TEST_MODE
 const state = process.env.VELA_TEST_STATE
-const existing = { id: 9, appId: 10, appName: 'demo', submitGitBranch: 'dev', version: '1.0.0' }
+const existing = { id: 9, devTaskId: 26, appId: 10, appName: 'demo', submitGitBranch: 'dev', version: '1.0.0', updateContent: null, dbChanged: true }
 const report = { id: 64, appName: 'report6-html' }
+let currentAssociation = existing
 
 if (mode === 'terminal' || mode === 'narrow') {
   process.stdout.isTTY = true
@@ -38,6 +39,18 @@ globalThis.fetch = async (address, init) => {
     if (mode === 'lost-after-write') throw new Error('response lost')
     return reply(11)
   }
+  if (route === 'dev-task-app/update') {
+    assert.equal(init.method, 'PUT')
+    assert.equal(new Headers(init.headers).get('Content-Type'), 'application/json')
+    const payload = JSON.parse(init.body)
+    assert.equal(typeof payload.updateContent, 'string')
+    assert.deepEqual(payload, { ...currentAssociation, updateContent: payload.updateContent })
+    appendFileSync(state + '.puts', JSON.stringify(payload) + '\n')
+    if (mode === 'lost-before-write') throw new Error('connection reset')
+    writeFileSync(state + '.updated', JSON.stringify(payload))
+    if (mode === 'lost-after-write') throw new Error('response lost')
+    return reply(true)
+  }
   assert.equal(init.method, 'GET')
   switch (route) {
     case 'application/app/get':
@@ -64,7 +77,14 @@ globalThis.fetch = async (address, init) => {
     case 'dev-task-app/list': {
       assert.equal(url.searchParams.get('devTaskId'), '26')
       const added = JSON.parse(readFileSync(state, 'utf8'))
-      return reply(added ? [existing, added] : [existing])
+      const updated = state + '.updated'
+      currentAssociation = existsSync(updated) ? JSON.parse(readFileSync(updated, 'utf8')) : existing
+      if (mode === 'changed-content') currentAssociation = { ...currentAssociation, updateContent: '别人已更新' }
+      if (mode === 'changed-branch') currentAssociation = { ...currentAssociation, submitGitBranch: 'release' }
+      const results = [currentAssociation]
+      if (added) results.push(added)
+      if (mode === 'ambiguous-links') results.push({ ...existing, id: 12, appId: 11 })
+      return reply(results)
     }
     case 'dev-task-member/list':
       assert.equal(url.searchParams.get('devTaskId'), '26')

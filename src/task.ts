@@ -67,20 +67,22 @@ async function readTask(session: Session, id: string) {
   return { ok: true, task, applications, members, plan, attachments, history }
 }
 
-function parseAppAdd(args: string[]) {
-  const usage = '请使用 vela task app add <任务编号> (--app <应用名> | --app-id <应用ID>) [--branch <分支>] [--version <版本>] [--apply <previewId>]。'
-  if (args[0] !== 'add') throw invalid(usage)
+function parseAppCommand([action, ...args]: string[]) {
+  if (action !== 'add' && action !== 'update') throw invalid('请使用 vela task app add 或 vela task app update，运行 vela task app 查看帮助。')
+  const actionOptions = action === 'add' ? '[--branch <分支>] [--version <版本>]' : '--content <正文>'
+  const usage = `请使用 vela task app ${action} <任务编号> (--app <应用名> | --app-id <应用ID>) ${actionOptions} [--apply <previewId>]。`
   const parsed = (() => {
     try {
       return parseArgs({
-        args: args.slice(1),
+        args,
         allowPositionals: true,
         options: {
           app: { type: 'string' },
           'app-id': { type: 'string' },
+          apply: { type: 'string' },
           branch: { type: 'string' },
           version: { type: 'string' },
-          apply: { type: 'string' },
+          content: { type: 'string' },
         },
       })
     } catch {
@@ -96,15 +98,23 @@ function parseAppAdd(args: string[]) {
   if ((values.app !== undefined && values['app-id'] !== undefined) || !selector) {
     throw invalid('请通过 --app 提供应用名称，或通过 --app-id 提供应用 ID。')
   }
-  const submitGitBranch = values.branch ?? 'dev'
+  const { apply, branch, version, content } = values
+  if (apply !== undefined && !/^[0-9a-f]{64}$/.test(apply)) throw invalid('--apply 需要有效的 previewId。')
+  if (action === 'update') {
+    if (content === undefined || branch !== undefined || version !== undefined) throw invalid(usage)
+    return { action, devTaskId, selector, content, apply } as const
+  }
+  if (content !== undefined) throw invalid(usage)
+  const submitGitBranch = branch ?? 'dev'
   if (!/^[^\s\x00-\x1f\x7f]+$/.test(submitGitBranch)) throw invalid('--branch 需要有效的 Git 分支名。')
-  const { version, apply } = values
   if (version !== undefined && !/^\d+\.\d+\.\d+$/.test(version)) {
     throw invalid('--version 须采用数字.数字.数字格式。')
   }
-  if (apply !== undefined && !/^[0-9a-f]{64}$/.test(apply)) throw invalid('--apply 需要有效的 previewId。')
-  return { devTaskId, selector, submitGitBranch, version, apply }
+  return { action, devTaskId, selector, submitGitBranch, version, apply } as const
 }
+
+type AppCommand = ReturnType<typeof parseAppCommand>
+type Read = <T>(operation: (active: Session) => Promise<T>) => Promise<T>
 
 function catalogApp(raw: unknown) {
   const app = asObject(raw)
@@ -115,7 +125,7 @@ function catalogApp(raw: unknown) {
   return { appId, appName: app.appName }
 }
 
-async function resolveApp(session: Session, selector: ReturnType<typeof parseAppAdd>['selector']) {
+async function resolveApp(session: Session, selector: AppCommand['selector']) {
   if (selector.appId !== undefined) {
     const app = catalogApp(await requestWithSession(session, catalog + '/get?id=' + selector.appId))
     if (app.appId !== selector.appId) throw new CliError('API_ERROR', 'VELA 返回了其他应用。')
@@ -134,7 +144,7 @@ async function resolveApp(session: Session, selector: ReturnType<typeof parseApp
     `${reason}。候选应用为 ${choices}${more}，请使用 --app-id 指定。`)
 }
 
-async function prepareAppAdd(session: Session, input: ReturnType<typeof parseAppAdd>) {
+async function prepareAppAdd(session: Session, input: Extract<AppCommand, { action: 'add' }>) {
   const id = String(input.devTaskId)
   const [task, app, links, account] = await Promise.all([
     readTaskDetail(session, id),
@@ -157,14 +167,73 @@ export type TaskAppResult =
   | ({ ok: true; submitted: false } & TaskAppPreview)
   | { ok: true; submitted: true; taskApp: TaskAppPreview['taskApp']; association: Record<string, unknown> }
 
-export async function taskCommand(args: string[]) {
-  const [command, id] = args
-  const add = command === 'app' ? parseAppAdd(args.slice(1)) : undefined
-  if (!add && (args.length !== 2 || command !== 'get' || !/^[1-9]\d*$/.test(id))) {
-    throw invalid('请使用 vela task get <任务编号> 或 vela task app add，运行 vela task 查看帮助。')
+async function updateAppContent(
+  { devTaskId, selector, content, apply }: Extract<AppCommand, { action: 'update' }>,
+  read: Read,
+  session: () => Session,
+) {
+  const id = String(devTaskId)
+  const [task, links, account] = await read(active => Promise.all([
+    readTaskDetail(active, id), readTaskApps(active, id), identityFor(active),
+  ]))
+  const matches = links.filter(link => selector.appId === undefined
+    ? link.appName === selector.appName : numericId(link.appId) === selector.appId)
+  const stale = () => new CliError('PREVIEW_STALE', '账号、关联应用或更新内容已变化，请重新预览。')
+  if (matches.length !== 1) {
+    if (apply !== undefined) throw stale()
+    if (!matches.length) throw new CliError('APP_NOT_FOUND', `任务 #${id} 下没有匹配的关联应用。`)
+    if (selector.appId !== undefined) {
+      throw new CliError('APP_AMBIGUOUS', `任务 #${id} 下有多条关联记录使用应用 ID #${selector.appId}。`)
+    }
+    const ids = matches.map(link => numericId(link.appId)).filter(appId => appId !== undefined)
+    throw new CliError('APP_AMBIGUOUS', `任务 #${id} 下有多个同名关联应用，请用 --app-id 指定。应用 ID 为 ${ids.join('、')}。`)
+  }
+  const previous = matches[0]
+  const associationId = numericId(previous.id)
+  const appId = numericId(previous.appId)
+  const { appName, updateContent } = previous
+  if (associationId === undefined || appId === undefined || typeof appName !== 'string' || !appName
+    || (previous.devTaskId != null && numericId(previous.devTaskId) !== devTaskId)
+    || (updateContent != null && typeof updateContent !== 'string')) {
+    throw new CliError('API_ERROR', 'VELA 返回的关联应用数据格式有误。')
   }
 
-  return withSessionLock(async (): Promise<TaskDetails | TaskAppResult> => {
+  const appUpdate = {
+    devTaskId, taskName: task.taskName, appId, appName, associationId, before: updateContent ?? '', after: content,
+  }
+  const previewId = createHash('sha256').update(JSON.stringify(['task-app-update', account.id, appUpdate])).digest('hex')
+  if (apply !== undefined && apply !== previewId) throw stale()
+  if (appUpdate.before === content) throw new CliError('APP_CONTENT_UNCHANGED', '更新内容已经是该正文。')
+  if (apply === undefined) return { ok: true as const, submitted: false as const, appUpdate, previewId }
+
+  try {
+    const result = await requestWithSession(session(), taskApps + '/update', { ...previous, updateContent: content }, 'PUT')
+    if (result === false) throw new CliError('API_ERROR', 'VELA 未接受本次更新内容修改。')
+  } catch (error) {
+    if (!(error instanceof CliError) || !['NETWORK_ERROR', 'SUBMIT_UNCERTAIN'].includes(error.code)) throw error
+    // The PUT may have succeeded. Check the association before reporting the outcome.
+  }
+  const confirmed = await read(active => readTaskApps(active, id)).then(
+    rows => rows.find(row => numericId(row.id) === associationId && numericId(row.appId) === appId
+      && (row.updateContent ?? '') === content),
+    () => undefined,
+  )
+  if (!confirmed) {
+    throw new CliError('SUBMIT_UNCERTAIN', `回查未能确认更新内容，请先用 vela task get ${id} 核对。`)
+  }
+  return { ok: true as const, submitted: true as const, appUpdate, association: confirmed }
+}
+
+export type TaskAppUpdateResult = Awaited<ReturnType<typeof updateAppContent>>
+
+export async function taskCommand(args: string[]) {
+  const [command, id] = args
+  const app = command === 'app' ? parseAppCommand(args.slice(1)) : undefined
+  if (!app && (args.length !== 2 || command !== 'get' || !/^[1-9]\d*$/.test(id))) {
+    throw invalid('请使用 vela task get <任务编号> 或 vela task app，运行 vela task 查看帮助。')
+  }
+
+  return withSessionLock(async (): Promise<TaskDetails | TaskAppResult | TaskAppUpdateResult> => {
     let session = await loadSession()
     let refreshed = false
     async function read<T>(operation: (active: Session) => Promise<T>): Promise<T> {
@@ -179,7 +248,9 @@ export async function taskCommand(args: string[]) {
       }
     }
 
-    if (!add) return read(active => readTask(active, id))
+    if (!app) return read(active => readTask(active, id))
+    if (app.action === 'update') return updateAppContent(app, read, () => session)
+    const add = app
     const preview = await read(active => prepareAppAdd(active, add))
     if (add.apply === undefined) return { ok: true, submitted: false, ...preview }
     if (add.apply !== preview.previewId) {

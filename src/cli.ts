@@ -5,7 +5,7 @@ import { defectCommand } from './defect.js'
 import { hoursCommand } from './hours.js'
 import { clearSession, loadSession, saveSession, withSessionLock } from './session.js'
 import { taskCommand } from './task.js'
-import { formatAccount, formatDefect, formatDefectHelp, formatError, formatHelp, formatHours, formatTask, formatTaskApp, formatTaskHelp, TerminalUi } from './terminal-ui.js'
+import { formatAccount, formatDefect, formatDefectHelp, formatError, formatHelp, formatHours, formatTask, formatTaskApp, formatTaskAppUpdate, formatTaskHelp, TerminalUi } from './terminal-ui.js'
 import { accountFor, CliError, logoutSession, refreshSession } from './vela.js'
 
 async function main(args: string[], terminal: TerminalUi) {
@@ -30,7 +30,9 @@ async function main(args: string[], terminal: TerminalUi) {
     return defectCommand(rest)
   }
   if (command === 'task') {
-    terminal.wait(rest[0] === 'app' ? '正在处理任务应用关联' : '正在查询开发任务')
+    if (rest[0] !== 'app') terminal.wait('正在查询开发任务')
+    else if (rest[1] === 'update') terminal.wait('正在处理应用更新内容')
+    else terminal.wait('正在处理任务应用关联')
     return taskCommand(rest)
   }
   if (command === 'hours') {
@@ -107,6 +109,8 @@ try {
       output = formatAccount('account' in result ? result.account.nickname : undefined, commandArgs[0] === 'login')
     } else if ('taskApp' in result) {
       output = formatTaskApp(result, process.stdout.columns)
+    } else if ('appUpdate' in result) {
+      output = formatTaskAppUpdate(result, process.stdout.columns)
     } else if ('task' in result) {
       output = formatTask(result, process.stdout.columns)
     } else if ('defects' in result || 'defect' in result || 'transition' in result

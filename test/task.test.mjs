@@ -28,9 +28,9 @@ function setup(t, accessToken) {
     encoding: 'utf8',
     timeout: 10_000,
   })
-  const posts = () => existsSync(state + '.posts')
-    ? readFileSync(state + '.posts', 'utf8').trim().split('\n').map(JSON.parse) : []
-  return { run, session, posts }
+  const writes = (suffix) => existsSync(state + suffix)
+    ? readFileSync(state + suffix, 'utf8').trim().split('\n').map(JSON.parse) : []
+  return { run, session, posts: () => writes('.posts'), puts: () => writes('.puts') }
 }
 
 test('reads all task history pages and saves the refreshed session', t => {
@@ -79,6 +79,7 @@ test('displays task help and validates IDs before loading a session', t => {
   const help = run([])
   assert.equal(help.status, 0)
   assert.match(help.stdout, /vela task get/)
+  assert.match(help.stdout, /vela task app update .+\n +--content <正文>/)
   const invalid = run(['get', '1.5'])
   assert.equal(invalid.status, 2)
   assert.equal(JSON.parse(invalid.stdout).error.code, 'INVALID_USAGE')
@@ -177,5 +178,75 @@ for (const mode of ['lost-after-write', 'lost-before-write']) {
       assert.equal(data.error.code, 'SUBMIT_UNCERTAIN')
     }
     assert.deepEqual(posts(), [{ devTaskId: 26, appId: 64, submitGitBranch: 'dev' }])
+  })
+}
+
+test('previews and updates multiline app content against the latest association', t => {
+  const { run, puts } = setup(t, 'active')
+  const content = '影响模块：报告页\n测试要点：比较 A < B'
+  const args = ['app', 'update', '26', '--app', 'demo', '--content', content]
+  const preview = JSON.parse(run(args).stdout)
+  assert.equal(preview.submitted, false)
+  assert.deepEqual(preview.appUpdate, {
+    devTaskId: 26, taskName: '测试任务', appId: 10, appName: 'demo', associationId: 9, before: '', after: content,
+  })
+  const terminal = stripVTControlCharacters(run(args, 'terminal').stdout)
+  assert.match(terminal, /新内容 +│ 影响模块：报告页/)
+  assert.match(terminal, /测试要点：比较 A < B/)
+  assert.match(terminal, new RegExp(preview.previewId))
+  assert.deepEqual(puts(), [])
+
+  const applied = run([...args, '--apply', preview.previewId], 'changed-branch')
+  assert.equal(applied.status, 0, applied.stdout)
+  const result = JSON.parse(applied.stdout)
+  assert.equal(result.submitted, true)
+  assert.equal(result.association.updateContent, content)
+  assert.deepEqual(puts(), [{
+    id: 9, devTaskId: 26, appId: 10, appName: 'demo', submitGitBranch: 'release',
+    version: '1.0.0', updateContent: content, dbChanged: true,
+  }])
+  const details = run(['get', '26'])
+  assert.equal(JSON.parse(details.stdout).applications[0].updateContent, content)
+  assert.match(run(['get', '26'], 'terminal').stdout, /测试要点：比较 A < B/)
+
+  const clear = ['app', 'update', '26', '--app-id', '10', '--content', '']
+  const clearPreview = JSON.parse(run(clear).stdout)
+  assert.equal(clearPreview.appUpdate.before, content)
+  const cleared = JSON.parse(run([...clear, '--apply', clearPreview.previewId]).stdout)
+  assert.equal(cleared.submitted, true)
+  assert.equal(cleared.association.updateContent, '')
+})
+
+test('rejects stale app content previews and ambiguous or invalid input without writing', t => {
+  const { run, puts } = setup(t, 'active')
+  const args = ['app', 'update', '26', '--app', 'demo', '--content', '新正文']
+  const { previewId } = JSON.parse(run(args).stdout)
+  const confirmed = [...args, '--apply', previewId]
+  for (const mode of ['changed-content', 'different-user', 'ambiguous-links']) {
+    assert.equal(JSON.parse(run(confirmed, mode).stdout).error.code, 'PREVIEW_STALE')
+  }
+  const ambiguous = JSON.parse(run(args, 'ambiguous-links').stdout)
+  assert.equal(ambiguous.error.code, 'APP_AMBIGUOUS')
+  assert.match(ambiguous.error.message, /--app-id/)
+  assert.equal(JSON.parse(run(['app', 'update', '26', '--app', 'report6', '--content', '新正文']).stdout).error.code, 'APP_NOT_FOUND')
+  assert.equal(JSON.parse(run(['app', 'update', '26', '--app', 'demo', '--file', 'update.txt']).stdout).error.code, 'INVALID_USAGE')
+  assert.deepEqual(puts(), [])
+})
+
+for (const mode of ['lost-after-write', 'lost-before-write']) {
+  test(`checks app content after ${mode} without replaying the update`, t => {
+    const { run, puts } = setup(t, 'active')
+    const args = ['app', 'update', '26', '--app-id', '10', '--content', '新正文']
+    const { previewId } = JSON.parse(run(args).stdout)
+    const applied = run([...args, '--apply', previewId], mode)
+    const data = JSON.parse(applied.stdout)
+    if (mode === 'lost-after-write') {
+      assert.equal(applied.status, 0)
+      assert.equal(data.submitted, true)
+    } else {
+      assert.equal(applied.status, 1)
+      assert.equal(data.error.code, 'SUBMIT_UNCERTAIN')
+    }
+    assert.equal(puts().length, 1)
   })
 }
